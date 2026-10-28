@@ -280,9 +280,11 @@ try {
   const critical = editor.locator('[data-setting="co2_critical_threshold"]');
   const warningHex = editor.locator('[data-setting="co2_warning_color"]');
   const scale = editor.locator('[data-setting="co2_indicator_scale"]');
+  const softness = editor.locator('[data-setting="co2_indicator_softness"]');
   assert.equal(await warning.inputValue(), "600");
   assert.equal(await critical.inputValue(), "1000");
   assert.equal(await scale.inputValue(), "1");
+  assert.equal(await softness.inputValue(), "0");
   assert.equal(await editor.locator('[data-setting="co2_normal_color"]').count(), 0, "hidden normal state needs no color control");
   await warning.fill("700.5");
   assert.equal((await page.evaluate(() => window.editorConfig)).co2_warning_threshold, 700.5);
@@ -298,16 +300,26 @@ try {
   await critical.fill("1200.5");
   assert.equal(await editor.locator('[role="alert"]').isVisible(), false);
   const beforeInvalidScale = await page.evaluate(() => window.editorChanges.length);
-  for (const value of ["0.49", "1.51", ""]) {
+  for (const value of ["0.49", "5.01", ""]) {
     await scale.fill(value);
-    assert.match(await editor.locator('[role="alert"]').textContent(), /scale.*0\.5.*1\.5/);
+    assert.match(await editor.locator('[role="alert"]').textContent(), /scale.*0\.5.*5/);
     assert.equal(await page.evaluate(() => window.editorChanges.length), beforeInvalidScale);
   }
   await scale.fill("0.5");
   assert.equal((await page.evaluate(() => window.editorConfig)).co2_indicator_scale, 0.5);
-  await scale.fill("1.5");
-  assert.equal((await page.evaluate(() => window.editorConfig)).co2_indicator_scale, 1.5);
+  await scale.fill("5");
+  assert.equal((await page.evaluate(() => window.editorConfig)).co2_indicator_scale, 5);
   await scale.fill("1.25");
+  const beforeInvalidSoftness = await page.evaluate(() => window.editorChanges.length);
+  for (const value of ["-0.01", "100.01", ""]) {
+    await softness.fill(value);
+    assert.match(await editor.locator('[role="alert"]').textContent(), /softness.*0.*100/);
+    assert.equal(await page.evaluate(() => window.editorChanges.length), beforeInvalidSoftness);
+  }
+  for (const value of ["0", "100", "50.25"]) {
+    await softness.fill(value);
+    assert.equal((await page.evaluate(() => window.editorConfig)).co2_indicator_softness, Number(value));
+  }
   await page.setViewportSize({ width: 400, height: 1200 });
   const editorOverflow = await editor.evaluate((element) => {
     const boundary = element.getBoundingClientRect();
@@ -330,11 +342,12 @@ try {
   await editor.locator('[data-setting="co2_critical_color"]').fill("#000000");
   const customConfig = await page.evaluate(() => window.editorConfig);
   assert.deepEqual(customConfig, { ...originalConfig, co2_warning_threshold: 700.5, co2_critical_threshold: 1200.5,
-    co2_warning_color: "#123456", co2_critical_color: "#000000", co2_indicator_scale: 1.25 });
+    co2_warning_color: "#123456", co2_critical_color: "#000000", co2_indicator_scale: 1.25, co2_indicator_softness: 50.25 });
   await page.evaluate((config) => document.querySelector("echo-show-card-editor").setConfig(JSON.parse(JSON.stringify(config))), customConfig);
   assert.equal(await warningHex.inputValue(), "#123456");
   assert.equal(await critical.inputValue(), "1200.5");
   assert.equal(await scale.inputValue(), "1.25");
+  assert.equal(await softness.inputValue(), "50.25");
   await warningHex.fill("invalid");
   await editor.locator("[data-reset]").click();
   const { co2_normal_color: legacyNormal, ...resetConfig } = originalConfig;
@@ -342,6 +355,7 @@ try {
   assert.equal(await warning.inputValue(), "600");
   assert.equal(await critical.inputValue(), "1000");
   assert.equal(await scale.inputValue(), "1");
+  assert.equal(await softness.inputValue(), "0");
   for (const [level, color] of [["warning", "#e5c76b"], ["critical", "#af4d47"]]) {
     assert.equal(await editor.locator(`[data-setting="co2_${level}_color"]`).inputValue(), color);
     assert.equal(await editor.locator(`[data-color-picker="co2_${level}_color"]`).inputValue(), color);
@@ -460,7 +474,7 @@ try {
     // Check the actual SVG circle after scaling and resizing, including behind text
     // at saturation. Its center must stay exactly at the panel's top-right corner.
     for (const name of ["agenda", "ongoing", "long"]) {
-      for (const scale of [0.5, 1, 1.5]) {
+      for (const scale of [0.5, 1, 2.7, 5, 1.5]) {
         for (const reading of ["600", "1000", "2000", "3000", "500", "unavailable"]) {
           await page.evaluate(async ({ name, scale, reading }) => {
             document.querySelector("#scenario").value = name;
@@ -488,7 +502,7 @@ try {
           assert.equal(shape.opacity, visible ? 1 : 0);
           assert.equal(shape.pointerEvents, "none");
           assert.equal(shape.accessible, "true", "the numerical reading supplies the accessible information");
-          if (reading === "2000" && scale === 1.5) {
+          if (reading === "2000" && scale === 5) {
             await page.screenshot({ path: `${shots}/${name}-max-${width}.png` });
           }
         }
@@ -616,7 +630,8 @@ try {
     window.echoPreview.card._dismissedEvents = [];
     await window.echoPreview.render();
     const card = window.echoPreview.card;
-    card.setConfig({ ...card._config, co2_critical_color: "#ffffff", co2_indicator_scale: 1.5, co2_indicator_x: 100, co2_indicator_y: 100 });
+    card.setConfig({ ...card._config, co2_critical_color: "#ffffff", co2_indicator_scale: 5, co2_indicator_softness: 100,
+      co2_indicator_x: 100, co2_indicator_y: 100 });
     card._hass.states[card._config.co2_entity].state = "3000";
     card.hass = { ...card._hass };
   });
@@ -649,12 +664,81 @@ try {
   await page.locator("dialog button").click();
   await page.screenshot({ path: `${shots}/position-white-behind-clock-values.png` });
 
+  // Sample actual browser pixels, rather than only checking gradient attributes.
+  // Hide the foreground temporarily so text backing cannot mask rendering errors.
+  const edgePage = await browser.newPage({ reducedMotion: "reduce" });
+  edgePage.on("pageerror", (error) => errors.push(error.message));
+  await edgePage.goto(url);
+  await edgePage.waitForFunction(() => window.echoPreview?.card._status === "ready");
+  for (const [width, height] of [[1280, 800], [960, 600], [800, 480]]) {
+    await edgePage.setViewportSize({ width, height });
+    for (const name of ["agenda", "ongoing"]) {
+      for (const softness of [0, 50, 100]) {
+        for (const corner of [false, true]) {
+          await edgePage.evaluate(async ({ name, softness, corner }) => {
+            document.querySelector("#scenario").value = name;
+            document.querySelector("#co2").value = name === "agenda" ? "2000" : "1000";
+            document.querySelector("#scale").value = name === "agenda" ? "0.5" : "1";
+            document.querySelector("#softness").value = softness;
+            document.querySelector("#x").value = corner ? "100" : "50";
+            document.querySelector("#y").value = corner ? "0" : "50";
+            await window.echoPreview.render();
+            const card = window.echoPreview.card;
+            card.setConfig({ ...card._config, co2_warning_color: "#ffffff", co2_critical_color: "#ffffff" });
+          }, { name, softness, corner });
+          assert.equal(await edgePage.locator("#softness-label").textContent(), String(softness));
+          if (width === 1280 && name === "agenda" && softness === 100) {
+            await edgePage.locator("echo-show-card").screenshot({ path: `${shots}/soft-edge-${corner ? "corner" : "center"}.png` });
+          }
+          await edgePage.locator("echo-show-card .layout").evaluate((layout) => { layout.style.visibility = "hidden"; });
+          const geometry = await edgePage.locator("echo-show-card .co2-indicator").evaluate((svg) => {
+            const bounds = svg.getBoundingClientRect();
+            const disk = svg.querySelector("circle").getBoundingClientRect();
+            return { x: disk.left + disk.width / 2 - bounds.left, y: disk.top + disk.height / 2 - bounds.top, radius: disk.width / 2 };
+          });
+          const png = await edgePage.locator("echo-show-card .co2-indicator").screenshot();
+          await edgePage.locator("echo-show-card .layout").evaluate((layout) => { layout.style.visibility = ""; });
+          const fractions = [0.25, 0.6, 0.8, 0.9, 1.05];
+          const pixels = await edgePage.evaluate(async ({ png, geometry, fractions, corner }) => {
+            const image = new Image();
+            image.src = `data:image/png;base64,${png}`;
+            await image.decode();
+            const canvas = document.createElement("canvas");
+            canvas.width = image.width;
+            canvas.height = image.height;
+            const context = canvas.getContext("2d");
+            context.drawImage(image, 0, 0);
+            return fractions.map((fraction) => {
+              const distance = fraction * geometry.radius;
+              const x = geometry.x + distance * (corner ? -Math.SQRT1_2 : 1);
+              const y = geometry.y + distance * (corner ? Math.SQRT1_2 : 0);
+              return [...context.getImageData(Math.floor(x), Math.floor(y), 1, 1).data];
+            });
+          }, { png: png.toString("base64"), geometry, fractions, corner });
+          for (const [index, fraction] of fractions.entries()) {
+            const expected = fraction > 1 ? 0 : softness === 0 ? 1 : Math.min(1, (1 - fraction) / (softness / 200));
+            for (const [channel, background] of [21, 28, 36].entries()) {
+              const opacity = (pixels[index][channel] - background) / (255 - background);
+              assert.ok(Math.abs(opacity - expected) < 0.08,
+                `${width} ${name} softness ${softness} ${corner ? "corner" : "center"} at ${fraction}R: expected opacity ${expected}, got ${opacity}`);
+            }
+          }
+        }
+      }
+    }
+  }
+  await edgePage.close();
+
   // Use a separate real-time page so CSS transitions run independently of the
   // mocked calendar clock. Verify movement between endpoints, then reduced motion.
   const motionPage = await browser.newPage({ reducedMotion: "no-preference" });
   motionPage.on("pageerror", (error) => errors.push(error.message));
   await motionPage.goto(url);
   await motionPage.waitForFunction(() => window.echoPreview?.card._status === "ready");
+  await motionPage.evaluate(() => {
+    const card = window.echoPreview.card;
+    card.setConfig({ ...card._config, co2_indicator_softness: 100 });
+  });
   const motionShape = motionPage.locator("echo-show-card .co2-shape");
   const motionState = () => motionShape.evaluate((circle) => {
     const style = getComputedStyle(circle);
@@ -696,7 +780,7 @@ try {
   }), true);
   await motionPage.close();
   assert.deepEqual(errors, []);
-  console.log(`Browser checks passed: calendar states/lifecycle/Done, readings/tap/keyboard, editor validation/reset, 1–4 readings and whole-card coordinates at 3 viewport sizes, quarter/half/full circles, resize, contrast, growth/transitions/reduced motion. Screenshots: ${shots}`);
+  console.log(`Browser checks passed: calendar states/lifecycle/Done, readings/tap/keyboard, editor validation/reset, 1–4 readings and whole-card coordinates at 3 viewport sizes, quarter/half/full circles, scale through 5, soft-edge pixels, resize, contrast, growth/transitions/reduced motion. Screenshots: ${shots}`);
 } finally {
   if (browser) await browser.close();
   await new Promise((resolve) => server.close(resolve));

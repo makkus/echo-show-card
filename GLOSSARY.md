@@ -27,6 +27,10 @@ The center of the CO₂ indicator, measured across the full card from its top-le
 **Indicator scale**:
 A size multiplier for the CO₂ indicator that does not change its CO₂ level or color.
 
+**Indicator edge softness**:
+The degree to which the CO₂ indicator's perimeter fades into the background while its center remains solid.
+_Avoid_: Outline blur
+
 **Unavailable CO₂ reading**:
 A missing or unusable sensor reading, for which no CO₂ level can be determined.
 _Avoid_: Normal reading

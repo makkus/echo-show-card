@@ -8,6 +8,7 @@ export const DEFAULT_CO2_SETTINGS = Object.freeze({
   co2_warning_color: "#e5c76b",
   co2_critical_color: "#af4d47",
   co2_indicator_scale: 1,
+  co2_indicator_softness: 0,
   co2_indicator_corner: "top-right",
   co2_indicator_x: 100,
   co2_indicator_y: 0,
@@ -119,8 +120,13 @@ export function co2Settings(config = {}) {
       }
       settings[key] = value;
     } else if (key === "co2_indicator_scale") {
-      if (typeof value !== "number" || !Number.isFinite(value) || value < 0.5 || value > 1.5) {
-        throw new Error("CO₂ indicator scale must be a number from 0.5 to 1.5");
+      if (typeof value !== "number" || !Number.isFinite(value) || value < 0.5 || value > 5) {
+        throw new Error("CO₂ indicator scale must be a number from 0.5 to 5");
+      }
+      settings[key] = value;
+    } else if (key === "co2_indicator_softness") {
+      if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 100) {
+        throw new Error("CO₂ indicator edge softness must be a number from 0 to 100");
       }
       settings[key] = value;
     } else if (key === "co2_indicator_corner") {
@@ -462,6 +468,15 @@ export class EchoShowCard extends ElementBase {
       this.attachShadow({ mode: "open" }).innerHTML = `<style>${STYLES}</style>
         <section class="display" aria-label="Clock and calendar">
           <svg class="co2-indicator" aria-hidden="true" focusable="false">
+            <defs>
+              <radialGradient id="co2-fade">
+                <stop offset="100%" stop-color="white" />
+                <stop offset="100%" stop-color="white" stop-opacity="0" />
+              </radialGradient>
+              <mask id="co2-edge" maskContentUnits="objectBoundingBox" x="0" y="0" width="1" height="1">
+                <rect width="1" height="1" fill="url(#co2-fade)" />
+              </mask>
+            </defs>
             <g><circle class="co2-shape" r="0" /></g>
           </svg>
           <main class="layout">
@@ -498,6 +513,11 @@ export class EchoShowCard extends ElementBase {
     this.dataset.co2 = co2.band;
     const visible = co2.band === "warning" || co2.band === "critical";
     const indicator = this.shadowRoot.querySelector(".co2-indicator");
+    const softness = this._co2Settings.co2_indicator_softness;
+    // A relative mask follows the animated circle, preserving its solid center,
+    // outer radius, and fill-color transition. Zero uses the original crisp fill.
+    indicator.querySelector("stop").setAttribute("offset", `${100 - softness / 2}%`);
+    indicator.querySelector("circle").style.mask = softness > 0 ? "url(#co2-edge)" : "none";
     indicator.style.setProperty("--co2-size", visible ? co2.radiusFraction * this._co2Settings.co2_indicator_scale : 0);
     indicator.style.setProperty("--co2-visible", visible ? 1 : 0);
     // Keep the last warning color while shrinking away for normal/unavailable readings.
@@ -596,9 +616,12 @@ class EchoShowCardEditor extends ElementBase {
         <label>Critical threshold (ppm)<input type="number" min="0" step="any" required data-setting="co2_critical_threshold" aria-describedby="threshold-help co2-error"></label>
         <p class="hint" id="threshold-help">Warning starts at its threshold; critical starts above its threshold.
           The warning threshold must be below the critical threshold.</p>
-        <label>Indicator scale<input type="number" min="0.5" max="1.5" step="any" required data-setting="co2_indicator_scale" aria-describedby="scale-help co2-error"></label>
-        <p class="hint" id="scale-help">From 0.5 to 1.5; default 1. The radius grows with CO₂, reaching its maximum at twice
+        <label>Indicator scale<input type="number" min="0.5" max="5" step="any" required data-setting="co2_indicator_scale" aria-describedby="scale-help co2-error"></label>
+        <p class="hint" id="scale-help">From 0.5 to 5; default 1. The radius grows with CO₂, reaching its maximum at twice
           the critical threshold. Scale 1 caps it at 60% of the panel's shorter dimension.</p>
+        <label>Indicator edge softness<input type="number" min="0" max="100" step="any" required data-setting="co2_indicator_softness" aria-describedby="softness-help co2-error"></label>
+        <p class="hint" id="softness-help">From 0 to 100; default 0 (crisp). At 100, the outer half of the radius fades
+          into the background while the inner half stays solid. The fade stays inside the circle.</p>
         ${["warning", "critical"].map((level) => {
           const label = `${level[0].toUpperCase()}${level.slice(1)} indicator`;
           const key = `co2_${level}_color`;

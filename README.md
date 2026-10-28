@@ -85,20 +85,22 @@ default sensor reading.
 | `co2_critical_threshold` | Critical starts strictly above this reading, in ppm | `1000` |
 | `co2_warning_color` | Indicator from warning through critical threshold, inclusive | `"#e5c76b"` |
 | `co2_critical_color` | Indicator above the critical threshold | `"#af4d47"` |
-| `co2_indicator_scale` | Maximum-radius multiplier, from `0.5` to `1.5` | `1` |
+| `co2_indicator_scale` | Maximum-radius multiplier, from `0.5` to `5` | `1` |
+| `co2_indicator_softness` | Edge softness from `0` (crisp) to `100` (fade across the outer half of the radius) | `0` |
 | `co2_indicator_x` | Circle center horizontally across the full card, from `0` to `100` percent | `100` (right edge) |
 | `co2_indicator_y` | Circle center vertically down the full card, from `0` to `100` percent | `0` (top edge) |
 | `co2_indicator_corner` | Legacy corner default for omitted coordinate axes: `top-right`, `top-left`, `bottom-left`, or `bottom-right`, now relative to the full card | `"top-right"` |
 | `co2_normal_color` | Legacy color, accepted for compatibility; normal readings hide the indicator | `"#151c24"` |
 
-The thresholds, two indicator colors, scale, and center coordinates are available in the card's visual editor.
+The thresholds, two indicator colors, scale, edge softness, and center coordinates are available in the card's visual editor.
 Colors have a picker and an editable six-digit hex value (`#RRGGBB`). The panel stays dark,
 with dark backing behind calendar text, the clock/date, and readings to keep them readable when the indicator overlaps them.
 Thresholds accept nonnegative, finite numbers, including fractions, and the warning threshold
 must be strictly below the critical threshold. Scale accepts finite numbers from `0.5` through
-`1.5`, including fractions. Invalid entries show an error and do not update the applied
+`5`, including fractions. Edge softness accepts finite numbers from `0` through `100`,
+including fractions. Invalid entries show an error and do not update the applied
 configuration. Coordinates accept finite numbers from `0` through `100`, including fractions.
-**Reset CO₂ settings** restores the thresholds, colors, scale, and position (`100 / 0`) while
+**Reset CO₂ settings** restores the thresholds, colors, scale (`1`), edge softness (`0`), and position (`100 / 0`) while
 preserving entity selections and the explicit readings list. The legacy normal-color setting is accepted in YAML but has
 no visual effect and is omitted from the editor.
 
@@ -112,7 +114,8 @@ co2_warning_threshold: 700
 co2_critical_threshold: 1200
 co2_warning_color: "#e5c76b"
 co2_critical_color: "#af4d47"
-co2_indicator_scale: 1
+co2_indicator_scale: 2
+co2_indicator_softness: 50
 co2_indicator_x: 0
 co2_indicator_y: 0
 values:
@@ -183,10 +186,14 @@ Home Assistant's [History and Recorder configuration](https://www.home-assistant
 - The indicator's radius grows proportionally to CO₂, reaching its maximum at twice the
   configured critical threshold (2000 ppm by default), then stays capped. At 1000 ppm it has
   half its maximum radius. Maximum radius is `60% × indicator scale` of the panel's shorter
-  dimension: scale `1` gives 60%, `0.5` gives 30%, and `1.5` gives 90%. It stays anchored to
+  dimension: scale `1` gives 60%, `0.5` gives 30%, and `5` gives 300%. It stays anchored to
   its configured percentage position when the card resizes. The radius retains its existing
   calendar-panel basis when the panel expands from the right third to the right half for focus events.
   Changes ease over one second; reduced-motion preferences apply updates immediately.
+- Edge softness fades inward from the circle's outer boundary, keeping its center solid
+  and text sharp. At `50`, the outer quarter of the radius fades; at `100`, the outer half
+  fades. The fade grows with the circle, adds no outward glow, and remains clipped at the
+  card edges. The default `0` preserves the crisp edge and existing configurations' appearance.
 - An empty calendar says “No upcoming events”; a failed read says “Calendar unavailable”.
   Event details are removed after a failed read. Missing, unknown, non-numeric, negative or
   incompatible-unit CO2 readings hide the indicator. The selected reading in the values
@@ -211,7 +218,7 @@ npm test
 ```
 
 Open <http://127.0.0.1:8765/> for the interactive preview. It uses synthetic events and CO2
-values, with scenario, time, scale, X/Y position sliders, and readings controls. Tapping a reading opens a
+values, with scenario, time, scale, edge softness, X/Y position sliders, and readings controls. Tapping a reading opens a
 synthetic details dialog; real Home Assistant history is not loaded. The server binds
 only to loopback and serves the two preview files and card module. Stop with Ctrl-C.
 To choose another port: `npm run preview -- 8766`.
@@ -228,7 +235,8 @@ npm run test:browser
 
 Browser checks cover Done dismissals, keyboard activation and reset on reload,
 refresh/timeout/reconnect behavior, offline/empty states, safe title rendering,
-custom CO₂ settings, whole-card indicator coordinates and clipping, sensor reading defaults/formatting/tap/keyboard,
+custom CO₂ settings, scale through `5`, edge-fade pixel checks, whole-card indicator coordinates and clipping,
+sensor reading defaults/formatting/tap/keyboard,
 editor add/remove/reorder/reset, text contrast, transitions and reduced motion, and calendar-panel
 geometry and one-to-four-reading layouts at 1280×800,
 960×600 and 800×480. Screenshots are saved

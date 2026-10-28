@@ -50,6 +50,8 @@ async function render() {
   document.querySelector("#offset-label").textContent = `${offset} min`;
   const scale = +document.querySelector("#scale").value;
   document.querySelector("#scale-label").textContent = `${scale}`;
+  const softness = +document.querySelector("#softness").value;
+  document.querySelector("#softness-label").textContent = `${softness}`;
   const x = +document.querySelector("#x").value;
   const y = +document.querySelector("#y").value;
   document.querySelector("#x-label").textContent = `${x}%`;
@@ -59,7 +61,8 @@ async function render() {
     ...entry, ...(selection === "long" ? { label: `A very long room sensor label for reading ${index + 1} that should wrap neatly` } : {}),
   }));
   card.setConfig({ type: "custom:echo-show-card", calendar: "calendar.preview", co2_entity: PREVIEW_CO2_ENTITY,
-    co2_indicator_scale: scale, co2_indicator_x: x, co2_indicator_y: y, ...(values === undefined ? {} : { values }) });
+    co2_indicator_scale: scale, co2_indicator_softness: softness,
+    co2_indicator_x: x, co2_indicator_y: y, ...(values === undefined ? {} : { values }) });
   card.hass = {
     connected: scenario !== "offline",
     config: { time_zone: "Europe/Berlin" },

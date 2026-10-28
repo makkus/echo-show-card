@@ -79,16 +79,32 @@ test("CO₂ radius grows proportionally and saturates at twice the configured cr
 
 test("indicator scale defaults to 1, accepts fractional bounds and rejects invalid settings", () => {
   assert.equal(co2Settings().co2_indicator_scale, 1);
-  for (const value of [0.5, 0.75, 1, 1.125, 1.5]) {
+  for (const value of [0.5, 0.75, 1, 1.125, 1.5, 2.75, 5]) {
     assert.equal(co2Settings({ co2_indicator_scale: value }).co2_indicator_scale, value);
   }
-  for (const value of [0, -1, 0.499, 1.501, "1", "", null, true, NaN, Infinity]) {
-    assert.throws(() => co2Settings({ co2_indicator_scale: value }), /scale.*0\.5.*1\.5/);
+  for (const value of [0, -1, 0.499, 5.001, "1", "", null, true, NaN, Infinity, -Infinity]) {
+    assert.throws(() => co2Settings({ co2_indicator_scale: value }), /scale.*0\.5.*5/);
   }
   const card = new EchoShowCard();
   card.setConfig({ co2_indicator_scale: 1.25 });
-  assert.throws(() => card.setConfig({ co2_indicator_scale: 2 }), /scale/);
+  assert.throws(() => card.setConfig({ co2_indicator_scale: 5.01 }), /scale/);
   assert.equal(card._co2Settings.co2_indicator_scale, 1.25);
+});
+
+test("edge softness defaults to crisp, accepts fractional bounds and preserves valid config on error", () => {
+  assert.equal(co2Settings().co2_indicator_softness, 0);
+  for (const value of [0, 0.5, 25, 50.25, 100]) {
+    assert.equal(co2Settings({ co2_indicator_softness: value }).co2_indicator_softness, value);
+  }
+  for (const value of [-0.001, 100.001, "50", "", null, true, NaN, Infinity, -Infinity]) {
+    assert.throws(() => co2Settings({ co2_indicator_softness: value }), /softness.*0.*100/);
+  }
+  const card = new EchoShowCard();
+  card.setConfig({ co2_indicator_scale: 5, co2_indicator_softness: 50.25 });
+  assert.throws(() => card.setConfig({ co2_indicator_softness: 101 }), /softness/);
+  assert.equal(card._co2Settings.co2_indicator_scale, 5);
+  assert.equal(card._co2Settings.co2_indicator_softness, 50.25);
+  assert.equal(card._config.co2_indicator_softness, 50.25);
 });
 
 test("indicator corners default to top-right and reject unsupported anchors", () => {
