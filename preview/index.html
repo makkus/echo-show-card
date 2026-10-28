@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Echo Show dashboard preview</title>
+<style>
+  body { margin:0; background:#151c24; color:#f0f3f6; font:14px system-ui,sans-serif; }
+  header { padding:12px 20px; display:flex; align-items:center; flex-wrap:wrap; gap:16px; border-bottom:1px solid #ffffff22; }
+  label { display:flex; align-items:center; gap:8px; }
+  select,input,button { font:inherit; accent-color:#b2c5d8; }
+  select,button { padding:5px; color:inherit; background:#263442; border:1px solid #536171; border-radius:4px; }
+  .hint { color:#acb6c2; }
+</style>
+<header>
+  <strong>Preview</strong><span class="hint">Synthetic events · no Home Assistant connection</span>
+  <label>Scenario <select id="scenario">
+    <option value="agenda">Agenda</option><option value="countdown">Countdown</option>
+    <option value="ongoing">Ongoing</option><option value="overlap">Overlapping events</option>
+    <option value="simultaneous">Simultaneous starts</option><option value="long">Long title</option>
+    <option value="empty">Empty</option><option value="error">Calendar unavailable</option>
+    <option value="offline">Home Assistant disconnected</option>
+  </select></label>
+  <label>CO₂ <select id="co2"><option>500</option><option>600</option><option>800</option><option>1000</option><option>1000.1</option><option>1200</option><option>unavailable</option></select></label>
+  <label>Time ahead <input id="offset" type="range" min="0" max="130" value="0"><output id="offset-label">0 min</output></label>
+  <button id="reset">Reset time</button>
+</header>
+<echo-show-card></echo-show-card>
+<script type="module" src="preview.js"></script>
+</html>

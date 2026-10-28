@@ -1,0 +1,10 @@
+title: Echo Show
+views:
+  - title: Clock
+    path: clock
+    type: panel
+    cards:
+      - type: custom:echo-show-card
+        # Select your entities in the card's visual editor after saving.
+        calendar: ""
+        co2_entity: ""

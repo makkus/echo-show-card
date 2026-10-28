@@ -1,0 +1,24 @@
+{
+  "name": "echo-show-card",
+  "version": "0.1.0",
+  "description": "Home Assistant kiosk clock, calendar agenda and CO2 background",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/makkus/echo-show-card.git"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "check": "node --check echo-show-card.js && node --check preview/preview.js && node --check scripts/serve-preview.mjs && node --check scripts/browser-check.mjs && node scripts/check-package.mjs",
+    "test": "node --test tests/card.test.mjs",
+    "test:browser": "node scripts/browser-check.mjs",
+    "preview": "node scripts/serve-preview.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.63.0"
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "Echo Show clock and agenda",
+  "content_in_root": true,
+  "filename": "echo-show-card.js",
+  "homeassistant": "2026.10.4"
+}
