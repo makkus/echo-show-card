@@ -14,3 +14,10 @@ views:
         # co2_warning_color: "#e5c76b"
         # co2_critical_color: "#af4d47"
         # co2_indicator_scale: 1
+        # co2_indicator_corner: top-right
+        # Omit values to show the selected CO₂ sensor, or use [] to hide readings.
+        # values:
+        #   - entity: sensor.co2
+        #     label: CO₂
+        #   - entity: sensor.room_temperature
+        #     label: Room temperature

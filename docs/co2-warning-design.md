@@ -7,7 +7,7 @@ Assistant and on-device rendering have not been verified for this change.
 ## Agreed replacement design
 
 - Replace the changing full-panel background with a filled quarter circle anchored
-  at the calendar panel's top-right corner, growing inward. The filled shape should
+  at a selected calendar-panel corner (top-right by default), growing inward. The filled shape should
   make the CO₂ level recognizable from a distance.
 - Keep the calendar panel's background dark.
 - Grow the indicator's radius continuously as CO₂ rises, up to a maximum size.
@@ -22,13 +22,15 @@ Assistant and on-device rendering have not been verified for this change.
   discrete at the level boundaries.
 - Hide the indicator for normal readings. The existing default normal color matches
   the dark panel background, and a visible normal indicator is unnecessary.
-- Hide the indicator for unavailable readings and retain the "CO₂ unavailable"
-  label, so unavailable readings remain distinguishable from normal readings.
+- Hide the indicator for unavailable readings. The values section represents
+  unavailable readings with an em dash and retains their labels.
 - Place the indicator behind calendar content and keep the corner strongly
   colored. Use subtle dark backing behind overlapping calendar text to preserve
   readability without rearranging the calendar. Judge the precise visual treatment
   and starting size in the local preview.
-- Keep the numerical CO₂ reading at the panel's bottom.
+- Show the numerical CO₂ reading by default in the separate values section below
+  the clock. The calendar panel has no numerical CO₂ footer. An explicit readings
+  list controls which sensor values appear; see [the layout design](dashboard-layout-design.md).
 - Ease changes into place over about one second, without pulsing or flashing.
   When reduced motion is enabled, apply updates immediately.
 
@@ -40,6 +42,9 @@ Assistant and on-device rendering have not been verified for this change.
 - The scale changes only the indicator's maximum radius; it does not change the
   growth fraction, level thresholds, or colors.
 - "Reset CO₂ settings" also restores the scale to 1 and preserves entity selections.
+- `co2_indicator_corner` selects `top-right`, `top-left`, `bottom-left`, or
+  `bottom-right` in YAML or the editor. Reset also restores `top-right`, preserving
+  the explicit readings list. Corner selection does not change growth or scale.
 - Keep existing threshold and color configuration keys compatible. Warning and
   critical colors now apply to the corner indicator, rather than the panel.
   Normal readings remain hidden, including with a customized normal color.
@@ -58,16 +63,16 @@ Assistant and on-device rendering have not been verified for this change.
 
 ## Verification
 
-- `npm test`: all 20 logic tests passed, including growth fractions, saturation,
-  custom thresholds, scale bounds/defaults, unavailable readings, and calendar logic.
+- `npm test`: all 24 logic tests passed, including growth fractions, saturation,
+  custom thresholds, scale/corner validation, readings, and calendar logic.
 - `npm run check`: syntax and HACS packaging checks passed.
 - `npm run test:browser`: Chromium checks passed for editor validation/reset,
   configuration round trips (including legacy normal color), dark panel and clock,
   safe title rendering, and preserving calendar data during presentation edits.
 - Layout checks cover agenda, countdown, ongoing, long-title, empty, calendar-error,
   and offline states at 1280×800, 960×600, and 800×480. Radius, scale bounds,
-  saturation, hiding, circular geometry, and top-right anchoring were checked
-  across these sizes. The numerical reading stays at the panel's bottom.
+  saturation, hiding, circular geometry, and all four corner anchors were checked
+  across these sizes. The numerical reading is in the values section below the clock.
 - Text backing retains at least 4.5:1 contrast even over a custom white indicator.
   Done remains usable with the largest indicator. Existing dismissal, refresh,
   reconnect, timeout, and keyboard behavior checks also passed.
@@ -76,7 +81,8 @@ Assistant and on-device rendering have not been verified for this change.
 - Screenshots of agenda, ongoing, long-title, maximum-size, white-indicator, and
   editor states were generated under `/tmp/echo-show-dashboard`. Representative
   normal and maximum-size views were visually inspected.
-- The interactive preview includes CO₂ values through 3000 ppm and a scale slider.
+- The interactive preview includes CO₂ values through 3000 ppm, a scale slider,
+  all four corners, and sensor-readings controls.
 
 This is a reversible display and configuration change; a separate architecture
 decision record is unnecessary.

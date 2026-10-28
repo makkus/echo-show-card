@@ -76,7 +76,9 @@ try {
   assert.equal(await card.getAttribute("data-co2"), "critical");
   await scenario("offline");
   assert.equal(await text(".empty"), "Calendar unavailable");
-  assert.equal(await text(".co2"), "CO₂ unavailable");
+  assert.equal(await card.locator(".reading-value").first().textContent(), "—");
+  assert.equal(await card.locator(".reading-value").nth(1).textContent(), "—");
+  assert.equal(await card.locator("footer").count(), 0);
   assert.equal(await card.getAttribute("data-co2"), "unavailable");
 
   // Custom settings affect only the corner indicator. Even a legacy normal color
@@ -121,6 +123,63 @@ try {
     assert.ok(Math.abs(size - fraction) < 0.00001, `growth fraction for ${value}`);
     assert.equal(await card.locator("li").count(), 5);
   }
+
+  // Readings are configured independently of the indicator and open HA details
+  // through the same event for pointer and keyboard activation.
+  await page.evaluate(async () => {
+    await window.echoPreview.render();
+    window.infoRequests = [];
+    document.addEventListener("hass-more-info", (event) => window.infoRequests.push({
+      entity: event.detail.entityId, bubbles: event.bubbles, composed: event.composed,
+    }));
+    const card = window.echoPreview.card;
+    const { values, ...config } = card._config;
+    card.setConfig(config);
+  });
+  assert.equal(await card.locator(".reading").count(), 1, "omitted list uses selected CO₂ sensor");
+  await page.evaluate(() => {
+    const card = window.echoPreview.card;
+    card.setConfig({ ...card._config, values: [] });
+  });
+  assert.equal(await card.locator(".values").isVisible(), false);
+  await page.evaluate(() => {
+    const card = window.echoPreview.card;
+    card.setConfig({ ...card._config, values: [{ entity: "sensor.preview_temperature", label: "Room" }, { entity: "sensor.preview_co2" }] });
+  });
+  const room = card.locator('.reading[data-entity="sensor.preview_temperature"]');
+  assert.equal(await room.locator(".reading-value").textContent(), "21.4 °C");
+  assert.equal(await room.locator(".reading-label").textContent(), "Room");
+  assert.equal(await room.locator(".reading-unit").textContent(), "°C");
+  await room.click();
+  assert.equal(await page.locator("dialog h2").textContent(), "Room temperature");
+  await page.locator("dialog button").click();
+  await room.focus();
+  await page.keyboard.press("Enter");
+  await page.locator("dialog button").click();
+  await room.focus();
+  assert.notEqual(await room.evaluate((element) => getComputedStyle(element).outlineStyle), "none");
+  await page.keyboard.press("Space");
+  await page.locator("dialog button").click();
+  await page.evaluate(() => {
+    const card = window.echoPreview.card;
+    window.focusedReading = card.shadowRoot.querySelector(".reading");
+    card._hass.states["sensor.preview_temperature"].state = "unavailable";
+    card.hass = { ...card._hass };
+  });
+  assert.equal(await room.locator(".reading-value").textContent(), "—");
+  assert.equal(await room.isEnabled(), true);
+  assert.equal(await page.evaluate(() => window.focusedReading === window.echoPreview.card.shadowRoot.querySelector(".reading")), true, "live updates must preserve reading buttons and focus");
+  await room.click();
+  await page.locator("dialog button").click();
+  assert.deepEqual(await page.evaluate(() => window.infoRequests), Array(4).fill({ entity: "sensor.preview_temperature", bubbles: true, composed: true }));
+  await page.evaluate(() => {
+    const card = window.echoPreview.card;
+    card.setConfig({ ...card._config, values: [{ entity: "sensor.missing", label: '<img src=x onerror="window.injected=true">' }] });
+  });
+  assert.equal(await card.locator(".reading").isDisabled(), true);
+  assert.match(await card.locator(".reading-label").textContent(), /<img/);
+  assert.equal(await card.locator("img").count(), 0);
+  assert.equal(await page.evaluate(() => window.injected), undefined);
 
   // Titles are calendar data, never markup.
   await page.evaluate(async () => {
@@ -213,7 +272,7 @@ try {
     });
     document.body.append(editor);
   });
-  await page.locator("echo-show-card-editor select").selectOption("calendar.personal");
+  await page.locator("echo-show-card-editor [data-calendar]").selectOption("calendar.personal");
   const originalConfig = { type: "custom:echo-show-card", calendar: "calendar.personal", co2_entity: "sensor.co2", extra_option: "preserve", co2_normal_color: "#abcdef" };
   assert.deepEqual(await page.evaluate(() => window.editorConfig), originalConfig);
   const editor = page.locator("echo-show-card-editor");
@@ -289,6 +348,43 @@ try {
   }
   assert.equal(await editor.locator('[role="alert"]').isVisible(), false);
 
+  // Editing a list overrides the CO₂ default. Invalid partial entries remain
+  // drafts, and add/remove/reorder/reset preserve unrelated settings.
+  const rows = editor.locator(".value-row");
+  assert.equal(await rows.count(), 1);
+  const beforeBlank = await page.evaluate(() => window.editorChanges.length);
+  await editor.locator("[data-add-value]").click();
+  assert.equal(await rows.count(), 2);
+  assert.match(await editor.locator('[role="alert"]').textContent(), /reading 2/);
+  assert.equal(await page.evaluate(() => window.editorChanges.length), beforeBlank);
+  for (const [index, entity] of [[1, "sensor.temperature"], [2, "sensor.humidity"], [3, "sensor.pressure"]]) {
+    if (index > 1) await editor.locator("[data-add-value]").click();
+    await rows.nth(index).locator("[data-value-entity]").fill(entity);
+    await rows.nth(index).locator("[data-value-entity]").press("Tab");
+  }
+  assert.equal(await editor.locator("[data-add-value]").isDisabled(), true);
+  await rows.nth(1).locator("[data-value-label]").fill("Room temperature");
+  await rows.nth(1).locator("[data-value-up]").click();
+  assert.equal((await page.evaluate(() => window.editorConfig)).values[0].entity, "sensor.temperature");
+  assert.equal(await rows.first().locator("[data-value-label]").inputValue(), "Room temperature");
+  await rows.first().locator("[data-value-down]").click();
+  await rows.nth(3).locator("[data-value-remove]").click();
+  assert.equal(await rows.count(), 3);
+  await editor.locator('[data-setting="co2_indicator_corner"]').selectOption("bottom-left");
+  assert.equal((await page.evaluate(() => window.editorConfig)).co2_indicator_corner, "bottom-left");
+  const explicitReadings = (await page.evaluate(() => window.editorConfig)).values;
+  await editor.screenshot({ path: `${shots}/values-editor.png` });
+  assert.equal(await editor.evaluate((element) => [...element.shadowRoot.querySelectorAll("input,select,button,fieldset")].some((control) => control.getBoundingClientRect().right > element.getBoundingClientRect().right)), false);
+  await editor.locator("[data-reset]").click();
+  assert.equal(await editor.locator('[data-setting="co2_indicator_corner"]').inputValue(), "top-right");
+  assert.deepEqual((await page.evaluate(() => window.editorConfig)).values, explicitReadings);
+  assert.equal((await page.evaluate(() => window.editorConfig)).co2_entity, "sensor.co2");
+  await editor.locator("[data-default-values]").click();
+  assert.equal((await page.evaluate(() => window.editorConfig)).values, undefined);
+  assert.equal(await rows.count(), 1);
+  await rows.first().locator("[data-value-remove]").click();
+  assert.deepEqual((await page.evaluate(() => window.editorConfig)).values, []);
+
   // Viewport/overflow checks and screenshots contain only the synthetic preview.
   await page.goto(url);
   await page.waitForFunction(() => window.echoPreview?.card._status === "ready");
@@ -307,7 +403,7 @@ try {
         const card = window.echoPreview.card;
         const root = card.shadowRoot;
         const display = root.querySelector(".display").getBoundingClientRect();
-        const visible = [...root.querySelectorAll(".time,.date,li,.focus-title,.focus-status,.done,footer")].filter((el) => el.getBoundingClientRect().height > 0);
+        const visible = [...root.querySelectorAll(".time,.date,li,.focus-title,.focus-status,.done,.values,.reading")].filter((el) => el.getBoundingClientRect().height > 0);
         return visible.filter((el) => {
           const box = el.getBoundingClientRect();
           const container = root.querySelector(el.closest(".calendar-panel") ? ".calendar-panel" : ".clock").getBoundingClientRect();
@@ -320,24 +416,25 @@ try {
         const root = window.echoPreview.card.shadowRoot;
         const display = root.querySelector(".display").getBoundingClientRect();
         const panel = root.querySelector(".calendar-panel").getBoundingClientRect();
-        const footer = root.querySelector("footer").getBoundingClientRect();
+        const content = root.querySelector(root.host.hasAttribute("data-focus") ? ".focus" : ".agenda").getBoundingClientRect();
         const done = root.querySelector(".done").getBoundingClientRect();
         const panelStyle = getComputedStyle(root.querySelector(".calendar-panel"));
         return { width: panel.width / display.width, top: panel.top - display.top, right: display.right - panel.right,
-          bottom: display.bottom - panel.bottom, footerGap: panel.bottom - footer.bottom,
-          bottomPadding: parseFloat(panelStyle.paddingBottom), footerInside: footer.left >= panel.left && footer.right <= panel.right,
-          doneHeight: done.height, doneAboveFooter: done.bottom <= footer.top,
+          bottom: display.bottom - panel.bottom, contentGap: panel.bottom - content.bottom,
+          bottomPadding: parseFloat(panelStyle.paddingBottom), contentInside: content.left >= panel.left && content.right <= panel.right,
+          doneHeight: done.height, doneInside: done.bottom <= panel.bottom - parseFloat(panelStyle.paddingBottom) + 1,
           background: panelStyle.backgroundColor, clock: getComputedStyle(root.querySelector(".display")).backgroundColor };
       });
       const focused = ["countdown", "ongoing", "long", "long-ongoing"].includes(name);
       if (["ongoing", "long-ongoing"].includes(name)) {
         assert.ok(geometry.doneHeight >= 48, "Done must have a usable touch target");
-        assert.equal(geometry.doneAboveFooter, true, "Done must not overlap the CO₂ footer");
+        assert.equal(geometry.doneInside, true, "Done must retain bottom padding");
       }
       assert.ok(Math.abs(geometry.width - (focused ? 1 / 2 : 1 / 3)) < 0.002, `${name} calendar panel width`);
       for (const edge of ["top", "right", "bottom"]) assert.ok(Math.abs(geometry[edge]) < 1, `${name} panel must fill ${edge} edge`);
-      assert.ok(Math.abs(geometry.footerGap - geometry.bottomPadding) < 1, "CO₂ footer must stay at panel bottom");
-      assert.equal(geometry.footerInside, true);
+      assert.ok(Math.abs(geometry.contentGap - geometry.bottomPadding) < 1, "calendar content must stay at panel bottom");
+      assert.ok(geometry.bottomPadding >= 24 && geometry.bottomPadding <= 48, "bottom padding must stay comfortable");
+      assert.equal(geometry.contentInside, true);
       assert.equal(geometry.clock, "rgb(21, 28, 36)");
       assert.equal(geometry.background, "rgb(21, 28, 36)");
       if (width === 1280) {
@@ -381,15 +478,83 @@ try {
         }
       }
     }
+
+    for (const name of ["agenda", "ongoing", "long"]) {
+      for (const selection of ["0", "1", "2", "3", "4", "long"]) {
+        await page.evaluate(async ({ name, selection }) => {
+          document.querySelector("#scenario").value = name;
+          document.querySelector("#values").value = selection;
+          document.querySelector("#co2").value = "2000";
+          await window.echoPreview.render();
+        }, { name, selection });
+        const layout = await page.evaluate(() => {
+          const root = window.echoPreview.card.shadowRoot;
+          const left = root.querySelector(".clock").getBoundingClientRect();
+          const values = root.querySelector(".values");
+          const box = values.getBoundingClientRect();
+          const date = root.querySelector(".date").getBoundingClientRect();
+          const buttons = [...root.querySelectorAll(".reading")].map((element) => element.getBoundingClientRect());
+          const padding = parseFloat(getComputedStyle(root.querySelector(".clock")).paddingBottom);
+          return { count: buttons.length, hidden: values.hidden, gap: box.top - date.bottom, padding,
+            bottomGap: left.bottom - box.bottom, rows: new Set(buttons.map((b) => Math.round(b.top))).size,
+            inside: buttons.every((b) => b.left >= left.left && b.right <= left.right && b.bottom <= left.bottom && b.top > date.bottom),
+            touch: buttons.every((b) => b.height >= 48), footer: root.querySelector("footer") !== null,
+            clockFits: root.querySelector(".time").scrollWidth <= root.querySelector(".time").clientWidth + 1 };
+        });
+        const count = selection === "long" ? 4 : Number(selection);
+        assert.equal(layout.count, count);
+        assert.equal(layout.hidden, count === 0);
+        assert.equal(layout.footer, false);
+        assert.equal(layout.clockFits, true, "readings must leave room for the clock");
+        if (count) {
+          assert.equal(layout.inside, true, `${width} ${name} ${selection}: readings must stay below date and inside left panel`);
+          assert.ok(layout.rows <= 2, "readings should use at most two rows");
+          assert.ok(layout.gap >= 24, "date and readings must have breathing room");
+          assert.ok(Math.abs(layout.bottomGap - layout.padding) < 1);
+          assert.equal(layout.touch, true);
+        }
+        if (selection === "4" || selection === "long") await page.screenshot({ path: `${shots}/${name}-values-${selection}-${width}.png` });
+      }
+
+      for (const corner of ["top-right", "top-left", "bottom-left", "bottom-right"]) {
+        await page.evaluate(async (corner) => {
+          document.querySelector("#corner").value = corner;
+          window.echoPreview.card._dismissedEvents = [];
+          await window.echoPreview.render();
+        }, corner);
+        const shape = await page.evaluate((corner) => {
+          const root = window.echoPreview.card.shadowRoot;
+          const svg = root.querySelector(".co2-indicator").getBoundingClientRect();
+          const disk = root.querySelector(".co2-shape").getBoundingClientRect();
+          const targetX = corner.endsWith("right") ? svg.right : svg.left;
+          const targetY = corner.startsWith("bottom") ? svg.bottom : svg.top;
+          const done = root.querySelector(".done");
+          return { x: disk.left + disk.width / 2 - targetX, y: disk.top + disk.height / 2 - targetY,
+            radius: disk.width / 2, expected: Math.min(svg.width, svg.height) * 0.9,
+            doneAbove: done.hidden || getComputedStyle(done.closest(".calendar-content")).zIndex === "1" };
+        }, corner);
+        assert.ok(Math.abs(shape.x) < 0.1 && Math.abs(shape.y) < 0.1, `${name} must anchor to ${corner}`);
+        assert.ok(Math.abs(shape.radius - shape.expected) < 0.1);
+        assert.equal(shape.doneAbove, true);
+        if (name === "ongoing") {
+          await page.screenshot({ path: `${shots}/corner-${corner}-${width}.png` });
+          await card.getByRole("button", { name: "Done", exact: true }).click();
+          assert.equal(await card.locator(".agenda").isVisible(), true, `Done must work with ${corner} indicator`);
+        }
+      }
+      // Restore the anchor for the existing growth checks at the next viewport.
+      await page.evaluate(() => { document.querySelector("#corner").value = "top-right"; });
+    }
   }
 
   // A white custom indicator is the worst case for light text. Check the actual
   // text backing's composited contrast and keep Done usable at the largest size.
   await page.evaluate(async () => {
     document.querySelector("#scenario").value = "ongoing";
+    window.echoPreview.card._dismissedEvents = [];
     await window.echoPreview.render();
     const card = window.echoPreview.card;
-    card.setConfig({ ...card._config, co2_critical_color: "#ffffff", co2_indicator_scale: 1.5 });
+    card.setConfig({ ...card._config, co2_critical_color: "#ffffff", co2_indicator_scale: 1.5, co2_indicator_corner: "bottom-right" });
     card._hass.states[card._config.co2_entity].state = "3000";
     card.hass = { ...card._hass };
   });
@@ -443,7 +608,7 @@ try {
   assert.equal((await motionState()).size, 0);
   await motionPage.close();
   assert.deepEqual(errors, []);
-  console.log(`Browser checks passed: calendar states/lifecycle/Done, safe text, custom CO₂ thresholds/colors, editor validation/reset, radius/scale/anchoring at 3 viewport sizes, text contrast, transitions and reduced motion. Screenshots: ${shots}`);
+  console.log(`Browser checks passed: calendar states/lifecycle/Done, safe text, readings/defaults/tap/keyboard, editor add/remove/reorder/reset, 1–4 readings and all corners at 3 viewport sizes, text contrast, growth/transitions/reduced motion. Screenshots: ${shots}`);
 } finally {
   if (browser) await browser.close();
   await new Promise((resolve) => server.close(resolve));

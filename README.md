@@ -2,8 +2,9 @@
 
 A Home Assistant card for a quiet kiosk display: a large clock, an upcoming calendar agenda,
 and an event countdown that becomes an ongoing-event display. A filled quarter circle in the
-calendar panel's top-right corner changes color and grows with CO2 while the background stays
-dark. Originally designed for an Echo Show 8
+calendar panel's selected corner changes color and grows with CO2 while the background stays
+dark. Up to four sensor readings sit below the clock, and calendar text aligns near the bottom.
+Originally designed for an Echo Show 8
 running an Android kiosk browser; it can be used in other Home Assistant browsers too.
 
 
@@ -51,7 +52,8 @@ installation so the browser loads one copy of the card.
    through the **Raw configuration editor**. This sets a panel view containing exactly one card.
 3. Open the card's visual editor. Choose your main calendar and enter or select the CO2 sensor.
    Under **CO₂ warnings**, adjust the two ppm thresholds, warning and critical colors, and
-   indicator scale if desired.
+   indicator scale and corner if desired. Under **Sensor values**, add up to four sensor
+   readings, give them optional labels, and reorder them.
    Save, then check the live event list and numerical reading against Home Assistant.
 4. Open `/echo-show/clock` on your kiosk. Record its current start URL before changing it.
    Assign this dashboard as the new kiosk start URL once it renders correctly.
@@ -70,28 +72,31 @@ co2_entity: ""
 ```
 
 Select the actual entities in the visual editor after adding the card. With an empty calendar,
-it displays “Choose a calendar”; with an empty CO2 sensor, it displays “CO₂ unavailable”.
+it displays “Choose a calendar”. An empty CO2 sensor hides the indicator and provides no
+default sensor reading.
 
 | Option | Purpose | Default |
 | --- | --- | --- |
 | `type` | `custom:echo-show-card` | Required |
 | `calendar` | One calendar entity to display | Unset |
 | `co2_entity` | Sensor with a numerical ppm reading | Unset |
+| `values` | Ordered list of up to four sensor readings with optional labels; `[]` hides the section | Selected CO₂ sensor, if any |
 | `co2_warning_threshold` | Warning starts at this reading, in ppm | `600` |
 | `co2_critical_threshold` | Critical starts strictly above this reading, in ppm | `1000` |
 | `co2_warning_color` | Corner indicator from warning through critical threshold, inclusive | `"#e5c76b"` |
 | `co2_critical_color` | Corner indicator above the critical threshold | `"#af4d47"` |
 | `co2_indicator_scale` | Maximum-radius multiplier, from `0.5` to `1.5` | `1` |
+| `co2_indicator_corner` | `top-right`, `top-left`, `bottom-left`, or `bottom-right` of the calendar panel | `"top-right"` |
 | `co2_normal_color` | Legacy color, accepted for compatibility; normal readings hide the indicator | `"#151c24"` |
 
-The thresholds, two indicator colors, and scale are available in the card's visual editor.
+The thresholds, two indicator colors, scale, and corner are available in the card's visual editor.
 Colors have a picker and an editable six-digit hex value (`#RRGGBB`). The panel stays dark,
 with dark backing behind calendar text to keep it readable when the indicator overlaps it.
 Thresholds accept nonnegative, finite numbers, including fractions, and the warning threshold
 must be strictly below the critical threshold. Scale accepts finite numbers from `0.5` through
 `1.5`, including fractions. Invalid entries show an error and do not update the applied
-configuration. **Reset CO₂ settings** restores the thresholds, colors, and scale while
-preserving entity selections. The legacy normal-color setting is accepted in YAML but has
+configuration. **Reset CO₂ settings** restores the thresholds, colors, scale, and corner while
+preserving entity selections and the explicit readings list. The legacy normal-color setting is accepted in YAML but has
 no visual effect and is omitted from the editor.
 
 These options also work in YAML; quote hex colors so YAML does not treat them as comments:
@@ -105,14 +110,43 @@ co2_critical_threshold: 1200
 co2_warning_color: "#e5c76b"
 co2_critical_color: "#af4d47"
 co2_indicator_scale: 1
+co2_indicator_corner: bottom-right
+values:
+  - entity: sensor.co2
+    label: CO₂
+  - entity: sensor.room_temperature
+    label: Room temperature
 ```
 
 Omitted settings use their defaults, so existing dashboard configurations continue to work.
 
+The example entity IDs are placeholders; choose your actual sensors. If `values` is omitted,
+the selected `co2_entity` appears below the clock. An explicit list replaces that default
+entirely, while `values: []` hides the section. The visual editor supports adding, removing,
+and moving readings up/down; **Use CO₂ default** removes the explicit list again. Changing
+readings does not change the indicator's `co2_entity`.
+
+Each entry requires a numerical `sensor.*` entity and may have a text `label`. Labels default
+to Home Assistant's sensor names; units and numbers use its formatting and display precision.
+Negative values such as below-zero temperatures are valid. Missing, invalid, unavailable,
+or disconnected readings keep their labels and show “—”, without affecting other readings.
+Sensors that still exist remain tappable while unavailable; missing entities are disabled.
+Labels wrap to two lines, and unusually long values are truncated visually with the full
+value retained in the reading's accessible label and tooltip.
+
+Tap anywhere on a reading to open its native Home Assistant entity details, with history
+where available. Readings also support Tab and Enter/Space. Recorded history depends on
+Home Assistant's [History and Recorder configuration](https://www.home-assistant.io/integrations/history/).
+
 ## Display behavior
 
-- The default view centers the clock in the left two thirds and shows up to five events over
-  the next seven days on the right. Current all-day entries are included and labeled “All day”.
+- The default view puts the clock in the left two thirds and shows up to five events over
+  the next seven days on the right. The agenda, countdown, and ongoing-event blocks align
+  near the bottom with 24–48 px of responsive bottom padding. Current all-day entries are
+  included and labeled “All day”.
+- Sensor readings sit at the bottom left with larger numbers, smaller labels, and no card
+  borders. They form a row on wide layouts and wrap into two rows on narrower layouts.
+  The clock and date center in the remaining space above them, leaving a clear gap.
 - A timed event starting strictly less than one hour away uses equal halves: clock left,
   title and countdown right. Remaining minutes round up; the final minute reads “in less
   than a minute”. At exactly one hour, the agenda remains visible.
@@ -126,9 +160,11 @@ Omitted settings use their defaults, so existing dashboard configurations contin
   are not modified. An event whose title or scheduled times change can take focus again.
 - The clock is 24-hour `HH:MM`, with weekday and date underneath. Labels are English and
   times use Home Assistant's timezone, including all-day event dates and DST transitions.
-- A filled quarter circle grows inward from the calendar panel's top-right corner. By default
+- A filled quarter circle grows inward from the selected calendar-panel corner (top-right by default).
+  A left corner is at the column divider, not the display's left edge. By default
   it is hidden below 600 ppm, muted yellow from **600 through 1000**, and muted red **above
-  1000**. The panel and clock stay dark; the numerical CO₂ reading stays at the panel's bottom.
+  1000**. The panel and clock stay dark. The calendar has no numerical CO₂ footer; readings
+  belong in the separate values section below the clock.
 - The indicator's radius grows proportionally to CO₂, reaching its maximum at twice the
   configured critical threshold (2000 ppm by default), then stays capped. At 1000 ppm it has
   half its maximum radius. Maximum radius is `60% × indicator scale` of the panel's shorter
@@ -137,7 +173,8 @@ Omitted settings use their defaults, so existing dashboard configurations contin
   Changes ease over one second; reduced-motion preferences apply updates immediately.
 - An empty calendar says “No upcoming events”; a failed read says “Calendar unavailable”.
   Event details are removed after a failed read. Missing, unknown, non-numeric, negative or
-  incompatible-unit CO2 readings say “CO₂ unavailable” and hide the indicator.
+  incompatible-unit CO2 readings hide the indicator. The selected reading in the values
+  section independently shows a number or “—” according to its availability.
 - On a Home Assistant disconnection, event details are removed and CO2 becomes unavailable.
   The clock continues. A calendar failure alone does not invalidate a working CO2 sensor.
 
@@ -145,7 +182,7 @@ Calendar range reads run every minute with a 15-second timeout. The clock and fo
 update locally every second. Calendar data older than 90 seconds is discarded, including on
 wake after suspension. The external calendar provider's own synchronization interval also
 applies. Event descriptions and locations are not displayed or logged; the card persists no
-event data or credentials across page reloads. Done is the kiosk display's only touch control;
+event data or credentials across page reloads. Touch controls are Done and the sensor readings;
 no audio is added.
 
 ## Preview and development
@@ -158,7 +195,8 @@ npm test
 ```
 
 Open <http://127.0.0.1:8765/> for the interactive preview. It uses synthetic events and CO2
-values, with scenario, time, and indicator-scale controls. It never connects to Home Assistant. The server binds
+values, with scenario, time, scale, corner, and readings controls. Tapping a reading opens a
+synthetic details dialog; real Home Assistant history is not loaded. The server binds
 only to loopback and serves the two preview files and card module. Stop with Ctrl-C.
 To choose another port: `npm run preview -- 8766`.
 
@@ -174,8 +212,9 @@ npm run test:browser
 
 Browser checks cover Done dismissals, keyboard activation and reset on reload,
 refresh/timeout/reconnect behavior, offline/empty states, safe title rendering,
-custom CO₂ settings, indicator growth/scale/anchoring, text contrast, transitions and reduced
-motion, editor validation/reset, and calendar-panel geometry and layout at 1280×800,
+custom CO₂ settings, all four indicator corners, sensor reading defaults/formatting/tap/keyboard,
+editor add/remove/reorder/reset, text contrast, transitions and reduced motion, and calendar-panel
+geometry and one-to-four-reading layouts at 1280×800,
 960×600 and 800×480. Screenshots are saved
 under `/tmp/echo-show-dashboard`. Set `ECHO_SCREENSHOT_DIR` to change that directory, or
 `ECHO_CHROMIUM_PATH` to use an existing Chromium executable. An external Playwright module

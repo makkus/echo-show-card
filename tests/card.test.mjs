@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { DEFAULT_CO2_SETTINGS, EchoShowCard, calendarMidnight, co2Reading, co2Settings, displayEvents, normalizeEvents } from "../echo-show-card.js";
+import { CO2_CORNERS, DEFAULT_CO2_SETTINGS, EchoShowCard, calendarMidnight, co2Reading, co2Settings, displayEvents, normalizeEvents, sensorReading, valueSettings } from "../echo-show-card.js";
 
 const ZONE = "Europe/Berlin";
 const NOW = Date.parse("2026-10-28T12:00:00+01:00");
@@ -89,6 +89,67 @@ test("indicator scale defaults to 1, accepts fractional bounds and rejects inval
   card.setConfig({ co2_indicator_scale: 1.25 });
   assert.throws(() => card.setConfig({ co2_indicator_scale: 2 }), /scale/);
   assert.equal(card._co2Settings.co2_indicator_scale, 1.25);
+});
+
+test("indicator corners default to top-right and reject unsupported anchors", () => {
+  assert.equal(co2Settings().co2_indicator_corner, "top-right");
+  for (const corner of CO2_CORNERS) assert.equal(co2Settings({ co2_indicator_corner: corner }).co2_indicator_corner, corner);
+  for (const corner of ["", "left", "TOP-RIGHT", null, 1]) assert.throws(() => co2Settings({ co2_indicator_corner: corner }), /corner/);
+});
+
+test("values default to CO₂, while explicit lists control order, labels, and hiding", () => {
+  assert.deepEqual(valueSettings(), []);
+  assert.deepEqual(valueSettings({ co2_entity: "sensor.co2" }), [{ entity: "sensor.co2" }]);
+  assert.deepEqual(valueSettings({ co2_entity: "sensor.co2", values: [] }), []);
+  const values = [{ entity: "sensor.temperature", label: " Room " }, { entity: "sensor.humidity", label: " " }];
+  assert.deepEqual(valueSettings({ co2_entity: "sensor.co2", values }), [{ entity: "sensor.temperature", label: "Room" }, { entity: "sensor.humidity" }]);
+  assert.equal(values[0].label, " Room ", "normalizing must not mutate user configuration");
+  for (const invalid of [null, {}, "sensor.co2", ["sensor.co2"], [{ entity: "light.room" }], [{ entity: "" }], [null], [{ entity: "sensor.co2", label: 1 }], Array(5).fill({ entity: "sensor.co2" })]) {
+    assert.throws(() => valueSettings({ values: invalid }));
+  }
+  const card = new EchoShowCard();
+  card.setConfig({ co2_entity: "sensor.co2", values });
+  assert.throws(() => card.setConfig({ co2_entity: "sensor.other", values: [{ entity: "bad" }] }), /sensor entity/);
+  assert.equal(card._config.co2_entity, "sensor.co2");
+  assert.deepEqual(card._values, [{ entity: "sensor.temperature", label: "Room" }, { entity: "sensor.humidity" }]);
+});
+
+test("readings use HA names, precision and unit parts without rounding the indicator", () => {
+  const state = { entity_id: "sensor.temperature", state: "-2.456", attributes: { unit_of_measurement: "°C", friendly_name: "Raw name" } };
+  const parts = [{ type: "value", value: "−2,5" }, { type: "literal", value: " " }, { type: "unit", value: "°C" }];
+  const hass = { connected: true, states: { "sensor.temperature": state },
+    formatEntityName: (entity) => { assert.equal(entity, state); return "Room temperature"; },
+    formatEntityStateToParts: (entity) => { assert.equal(entity, state); return parts; },
+  };
+  assert.deepEqual(sensorReading({ entity: "sensor.temperature" }, hass), { entity: "sensor.temperature", label: "Room temperature", available: true, exists: true, parts });
+  assert.equal(sensorReading({ entity: "sensor.temperature", label: "Outside" }, hass).label, "Outside");
+  assert.equal(co2Reading({ state: "1000.1" }).band, "critical");
+  delete hass.formatEntityStateToParts;
+  hass.formatEntityState = () => "−2,5 °C";
+  assert.deepEqual(sensorReading({ entity: "sensor.temperature" }, hass).parts, [{ type: "value", value: "−2,5 °C" }]);
+});
+
+test("invalid and disconnected readings show a dash without affecting independent sensors", () => {
+  const hass = { connected: true, states: {
+    "sensor.temperature": { state: "-5.2", attributes: { friendly_name: "Room", unit_of_measurement: "°C" } },
+    "sensor.other": { state: "unknown", attributes: { friendly_name: "Other" } },
+  } };
+  const entry = { entity: "sensor.temperature" };
+  assert.equal(sensorReading(entry, hass).available, true, "negative temperature is valid");
+  assert.equal(sensorReading({ entity: "sensor.other" }, hass).available, false);
+  for (const raw of ["", " ", "unknown", "unavailable", "NaN", "Infinity"]) {
+    hass.states[entry.entity].state = raw;
+    const reading = sensorReading(entry, hass);
+    assert.equal(reading.label, "Room");
+    assert.equal(reading.exists, true, "temporary unavailability still allows opening details");
+    assert.deepEqual(reading.parts, [{ type: "value", value: "—" }]);
+  }
+  hass.states[entry.entity].state = "21";
+  assert.equal(sensorReading(entry, { ...hass, connected: false }).available, false);
+  const missing = sensorReading({ entity: "sensor.missing" }, hass);
+  assert.equal(missing.exists, false);
+  assert.equal(missing.label, "sensor.missing");
+  assert.deepEqual(missing.parts, [{ type: "value", value: "—" }]);
 });
 
 test("countdown enters strictly below one hour, rounds up and handles the last minute", () => {

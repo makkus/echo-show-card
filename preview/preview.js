@@ -29,6 +29,19 @@ const scenarios = {
 };
 
 card._now = () => Date.now() + offset * 60_000;
+const readings = [
+  { entity: PREVIEW_CO2_ENTITY }, { entity: "sensor.preview_temperature" },
+  { entity: "sensor.preview_humidity" }, { entity: "sensor.preview_pressure" },
+];
+
+// Synthetic stand-ins for HA's name and parts formatters; no HA code is loaded.
+const formatEntityName = (state) => state.attributes.friendly_name || state.entity_id;
+function formatEntityStateToParts(state) {
+  const value = new Intl.NumberFormat("en-GB", { maximumFractionDigits: 20 }).format(Number(state.state));
+  const parts = [{ type: "value", value }];
+  if (state.attributes.unit_of_measurement) parts.push({ type: "literal", value: " " }, { type: "unit", value: state.attributes.unit_of_measurement });
+  return parts;
+}
 
 async function render() {
   const scenario = document.querySelector("#scenario").value;
@@ -37,14 +50,23 @@ async function render() {
   document.querySelector("#offset-label").textContent = `${offset} min`;
   const scale = +document.querySelector("#scale").value;
   document.querySelector("#scale-label").textContent = `${scale}`;
-  card.setConfig({ type: "custom:echo-show-card", calendar: "calendar.preview", co2_entity: PREVIEW_CO2_ENTITY, co2_indicator_scale: scale });
+  const selection = document.querySelector("#values").value;
+  const values = selection === "default" ? undefined : readings.slice(0, selection === "long" ? 4 : Number(selection)).map((entry, index) => ({
+    ...entry, ...(selection === "long" ? { label: `A very long room sensor label for reading ${index + 1} that should wrap neatly` } : {}),
+  }));
+  card.setConfig({ type: "custom:echo-show-card", calendar: "calendar.preview", co2_entity: PREVIEW_CO2_ENTITY,
+    co2_indicator_scale: scale, co2_indicator_corner: document.querySelector("#corner").value, ...(values === undefined ? {} : { values }) });
   card.hass = {
     connected: scenario !== "offline",
     config: { time_zone: "Europe/Berlin" },
     states: {
       "calendar.preview": { state: "off", attributes: { friendly_name: "Personal calendar" } },
-      [PREVIEW_CO2_ENTITY]: { state: co2, attributes: { unit_of_measurement: "ppm" } },
+      [PREVIEW_CO2_ENTITY]: { entity_id: PREVIEW_CO2_ENTITY, state: co2, attributes: { friendly_name: "CO₂", unit_of_measurement: "ppm" } },
+      "sensor.preview_temperature": { entity_id: "sensor.preview_temperature", state: "21.4", attributes: { friendly_name: "Room temperature", unit_of_measurement: "°C" } },
+      "sensor.preview_humidity": { entity_id: "sensor.preview_humidity", state: "48", attributes: { friendly_name: "Humidity", unit_of_measurement: "%" } },
+      "sensor.preview_pressure": { entity_id: "sensor.preview_pressure", state: "1013", attributes: { friendly_name: "Air pressure", unit_of_measurement: "hPa" } },
     },
+    formatEntityName, formatEntityStateToParts,
     callApi: async () => {
       if (scenario === "error") throw new Error("Synthetic calendar failure");
       return scenarios[scenario];
@@ -59,6 +81,14 @@ async function render() {
 
 for (const element of document.querySelectorAll("select,input")) element.addEventListener("input", render);
 document.querySelector("#reset").addEventListener("click", () => { document.querySelector("#offset").value = "0"; render(); });
+document.addEventListener("hass-more-info", (event) => {
+  const state = card._hass.states[event.detail.entityId];
+  const dialog = document.querySelector("#reading-details");
+  dialog.querySelector("h2").textContent = formatEntityName(state);
+  dialog.querySelector("[data-preview-state]").textContent = card._hass.connected && Number.isFinite(Number(state.state))
+    ? formatEntityStateToParts(state).map((part) => part.value).join("") : "Unavailable";
+  dialog.showModal();
+});
 // Exposed only by this local, synthetic preview for browser verification.
 window.echoPreview = { card, render, scenarios };
 await render();
