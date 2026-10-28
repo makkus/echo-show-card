@@ -35,7 +35,9 @@ async function render() {
   const co2 = document.querySelector("#co2").value;
   offset = +document.querySelector("#offset").value;
   document.querySelector("#offset-label").textContent = `${offset} min`;
-  card.setConfig({ type: "custom:echo-show-card", calendar: "calendar.preview", co2_entity: PREVIEW_CO2_ENTITY });
+  const scale = +document.querySelector("#scale").value;
+  document.querySelector("#scale-label").textContent = `${scale}`;
+  card.setConfig({ type: "custom:echo-show-card", calendar: "calendar.preview", co2_entity: PREVIEW_CO2_ENTITY, co2_indicator_scale: scale });
   card.hass = {
     connected: scenario !== "offline",
     config: { time_zone: "Europe/Berlin" },

@@ -20,7 +20,8 @@
     <option value="empty">Empty</option><option value="error">Calendar unavailable</option>
     <option value="offline">Home Assistant disconnected</option>
   </select></label>
-  <label>CO₂ <select id="co2"><option>500</option><option>600</option><option>800</option><option>1000</option><option>1000.1</option><option>1200</option><option>unavailable</option></select></label>
+  <label>CO₂ <select id="co2"><option>500</option><option>600</option><option>800</option><option>1000</option><option>1000.1</option><option>1200</option><option>2000</option><option>3000</option><option>unavailable</option></select></label>
+  <label>Indicator scale <input id="scale" type="range" min="0.5" max="1.5" step="0.1" value="1"><output id="scale-label">1</output></label>
   <label>Time ahead <input id="offset" type="range" min="0" max="130" value="0"><output id="offset-label">0 min</output></label>
   <button id="reset">Reset time</button>
 </header>

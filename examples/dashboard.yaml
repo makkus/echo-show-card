@@ -11,6 +11,6 @@ views:
         # Optional: also editable under CO₂ warnings in the card's visual editor.
         # co2_warning_threshold: 600
         # co2_critical_threshold: 1000
-        # co2_normal_color: "#151c24"
         # co2_warning_color: "#e5c76b"
         # co2_critical_color: "#af4d47"
+        # co2_indicator_scale: 1

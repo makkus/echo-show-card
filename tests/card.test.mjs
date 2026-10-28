@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { DEFAULT_CO2_SETTINGS, EchoShowCard, calendarMidnight, co2Foreground, co2Reading, co2Settings, displayEvents, normalizeEvents } from "../echo-show-card.js";
+import { DEFAULT_CO2_SETTINGS, EchoShowCard, calendarMidnight, co2Reading, co2Settings, displayEvents, normalizeEvents } from "../echo-show-card.js";
 
 const ZONE = "Europe/Berlin";
 const NOW = Date.parse("2026-10-28T12:00:00+01:00");
@@ -14,13 +14,15 @@ const model = (events, now = NOW) => displayEvents(normalizeEvents(events, ZONE)
 
 test("CO₂ boundaries use the actual reading, including fractional values", () => {
   for (const [value, band] of [["599.9", "normal"], ["600", "warning"], ["1000", "warning"], ["1000.1", "critical"]]) {
-    assert.deepEqual(co2Reading({ state: value, attributes: { unit_of_measurement: "ppm" } }), { band, label: `CO₂ ${value} ppm` });
+    const reading = co2Reading({ state: value, attributes: { unit_of_measurement: "ppm" } });
+    assert.equal(reading.band, band);
+    assert.equal(reading.label, `CO₂ ${value} ppm`);
   }
 });
 
 test("CO₂ missing, invalid, wrong-unit and disconnected readings are unavailable", () => {
   for (const state of [undefined, { state: "" }, { state: "  " }, { state: "unknown" }, { state: "unavailable" }, { state: "Infinity" }, { state: "-1" }, { state: "900", attributes: { unit_of_measurement: "ppb" } }]) {
-    assert.deepEqual(co2Reading(state), { band: "unavailable", label: "CO₂ unavailable" });
+    assert.deepEqual(co2Reading(state), { band: "unavailable", label: "CO₂ unavailable", radiusFraction: 0 });
   }
   assert.equal(co2Reading({ state: "1200" }, false).band, "unavailable");
 });
@@ -28,7 +30,9 @@ test("CO₂ missing, invalid, wrong-unit and disconnected readings are unavailab
 test("custom fractional CO₂ thresholds preserve inclusive warning and exclusive critical boundaries", () => {
   const settings = co2Settings({ co2_warning_threshold: 700.5, co2_critical_threshold: 1200.5 });
   for (const [value, band] of [["700.49", "normal"], ["700.5", "warning"], ["1200.5", "warning"], ["1200.51", "critical"]]) {
-    assert.deepEqual(co2Reading({ state: value }, true, settings), { band, label: `CO₂ ${value} ppm` });
+    const reading = co2Reading({ state: value }, true, settings);
+    assert.equal(reading.band, band);
+    assert.equal(reading.label, `CO₂ ${value} ppm`);
   }
   assert.equal(co2Reading({ state: "0" }, true, co2Settings({ co2_warning_threshold: 0 })).band, "warning");
 });
@@ -60,9 +64,31 @@ test("invalid card settings leave the last valid configuration intact", () => {
   assert.equal(card._co2Settings.co2_warning_threshold, 700);
 });
 
-test("CO₂ foreground adapts to light, dark and middle-luminance backgrounds", () => {
-  for (const color of ["#ffffff", "#e5c76b", "#808080", "#777777"]) assert.equal(co2Foreground(color), "#000000");
-  for (const color of ["#000000", "#151c24", "#af4d47", "#757575"]) assert.equal(co2Foreground(color), "#ffffff");
+test("CO₂ radius grows proportionally and saturates at twice the configured critical threshold", () => {
+  for (const [value, fraction] of [["0", 0], ["500", 0.25], ["600", 0.3], ["800", 0.4], ["1000", 0.5], ["1200", 0.6], ["2000", 1], ["10000", 1]]) {
+    assert.equal(co2Reading({ state: value }).radiusFraction, fraction);
+  }
+  const settings = co2Settings({ co2_critical_threshold: 1200, co2_indicator_scale: 1.5 });
+  assert.equal(co2Reading({ state: "1200" }, true, settings).radiusFraction, 0.5, "scale does not change the growth fraction");
+  assert.equal(co2Reading({ state: "2400" }, true, settings).radiusFraction, 1);
+  assert.equal(co2Reading({ state: "2401" }, true, settings).radiusFraction, 1);
+  assert.equal(co2Reading({ state: "2400" }, false, settings).radiusFraction, 0);
+  const large = co2Settings({ co2_critical_threshold: Number.MAX_VALUE });
+  assert.equal(co2Reading({ state: String(Number.MAX_VALUE) }, true, large).radiusFraction, 0.5);
+});
+
+test("indicator scale defaults to 1, accepts fractional bounds and rejects invalid settings", () => {
+  assert.equal(co2Settings().co2_indicator_scale, 1);
+  for (const value of [0.5, 0.75, 1, 1.125, 1.5]) {
+    assert.equal(co2Settings({ co2_indicator_scale: value }).co2_indicator_scale, value);
+  }
+  for (const value of [0, -1, 0.499, 1.501, "1", "", null, true, NaN, Infinity]) {
+    assert.throws(() => co2Settings({ co2_indicator_scale: value }), /scale.*0\.5.*1\.5/);
+  }
+  const card = new EchoShowCard();
+  card.setConfig({ co2_indicator_scale: 1.25 });
+  assert.throws(() => card.setConfig({ co2_indicator_scale: 2 }), /scale/);
+  assert.equal(card._co2Settings.co2_indicator_scale, 1.25);
 });
 
 test("countdown enters strictly below one hour, rounds up and handles the last minute", () => {

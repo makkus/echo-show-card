@@ -1,15 +1,16 @@
 # Echo Show clock and agenda
 
 A Home Assistant card for a quiet kiosk display: a large clock, an upcoming calendar agenda,
-and an event countdown that becomes an ongoing-event display. The calendar panel's background
-reflects a CO2 sensor reading while the clock stays dark. Originally designed for an Echo Show 8
+and an event countdown that becomes an ongoing-event display. A filled quarter circle in the
+calendar panel's top-right corner changes color and grows with CO2 while the background stays
+dark. Originally designed for an Echo Show 8
 running an Android kiosk browser; it can be used in other Home Assistant browsers too.
 
 
 ## Installation
 
 Requires Home Assistant **2026.10.4 or newer**, a calendar integration exposing a `calendar.*`
-entity, and a browser with modern JavaScript support. For the background indicator, select a
+entity, and a browser with modern JavaScript support. For the corner indicator, select a
 CO2 sensor reporting in **ppm**. There are no runtime dependencies or separate credentials.
 The card uses the existing Home Assistant user's read access to the selected entities.
 
@@ -49,7 +50,8 @@ installation so the browser loads one copy of the card.
 2. Open the new dashboard, edit it, and apply [examples/dashboard.yaml](examples/dashboard.yaml)
    through the **Raw configuration editor**. This sets a panel view containing exactly one card.
 3. Open the card's visual editor. Choose your main calendar and enter or select the CO2 sensor.
-   Under **CO₂ warnings**, adjust the two ppm thresholds and three background colors if desired.
+   Under **CO₂ warnings**, adjust the two ppm thresholds, warning and critical colors, and
+   indicator scale if desired.
    Save, then check the live event list and numerical reading against Home Assistant.
 4. Open `/echo-show/clock` on your kiosk. Record its current start URL before changing it.
    Assign this dashboard as the new kiosk start URL once it renders correctly.
@@ -77,16 +79,20 @@ it displays “Choose a calendar”; with an empty CO2 sensor, it displays “CO
 | `co2_entity` | Sensor with a numerical ppm reading | Unset |
 | `co2_warning_threshold` | Warning starts at this reading, in ppm | `600` |
 | `co2_critical_threshold` | Critical starts strictly above this reading, in ppm | `1000` |
-| `co2_normal_color` | Calendar background below the warning threshold | `"#151c24"` |
-| `co2_warning_color` | Calendar background from warning through critical threshold, inclusive | `"#e5c76b"` |
-| `co2_critical_color` | Calendar background above the critical threshold | `"#af4d47"` |
+| `co2_warning_color` | Corner indicator from warning through critical threshold, inclusive | `"#e5c76b"` |
+| `co2_critical_color` | Corner indicator above the critical threshold | `"#af4d47"` |
+| `co2_indicator_scale` | Maximum-radius multiplier, from `0.5` to `1.5` | `1` |
+| `co2_normal_color` | Legacy color, accepted for compatibility; normal readings hide the indicator | `"#151c24"` |
 
-All five CO₂ warning settings are available in the card's visual editor. Colors have a picker
-and an editable six-digit hex value (`#RRGGBB`); text automatically switches between light and
-dark to keep it readable. Thresholds accept nonnegative, finite numbers, including fractions,
-and the warning threshold must be strictly below the critical threshold. Invalid entries show
-an error and do not update the applied configuration. **Reset CO₂ settings** restores both
-thresholds and all three colors while preserving entity selections.
+The thresholds, two indicator colors, and scale are available in the card's visual editor.
+Colors have a picker and an editable six-digit hex value (`#RRGGBB`). The panel stays dark,
+with dark backing behind calendar text to keep it readable when the indicator overlaps it.
+Thresholds accept nonnegative, finite numbers, including fractions, and the warning threshold
+must be strictly below the critical threshold. Scale accepts finite numbers from `0.5` through
+`1.5`, including fractions. Invalid entries show an error and do not update the applied
+configuration. **Reset CO₂ settings** restores the thresholds, colors, and scale while
+preserving entity selections. The legacy normal-color setting is accepted in YAML but has
+no visual effect and is omitted from the editor.
 
 These options also work in YAML; quote hex colors so YAML does not treat them as comments:
 
@@ -96,9 +102,9 @@ calendar: calendar.personal
 co2_entity: sensor.co2
 co2_warning_threshold: 700
 co2_critical_threshold: 1200
-co2_normal_color: "#151c24"
 co2_warning_color: "#e5c76b"
 co2_critical_color: "#af4d47"
+co2_indicator_scale: 1
 ```
 
 Omitted settings use their defaults, so existing dashboard configurations continue to work.
@@ -120,14 +126,18 @@ Omitted settings use their defaults, so existing dashboard configurations contin
   are not modified. An event whose title or scheduled times change can take focus again.
 - The clock is 24-hour `HH:MM`, with weekday and date underneath. Labels are English and
   times use Home Assistant's timezone, including all-day event dates and DST transitions.
-- By default, the calendar background is dark neutral below 600 ppm, muted yellow from
-  **600 through 1000**, and muted red **above 1000**. The color fills the calendar panel edge
-  to edge: the right third normally, or the right half for countdowns and ongoing events.
-  The clock and date keep their dark background, and the CO₂ reading sits at the panel's bottom.
+- A filled quarter circle grows inward from the calendar panel's top-right corner. By default
+  it is hidden below 600 ppm, muted yellow from **600 through 1000**, and muted red **above
+  1000**. The panel and clock stay dark; the numerical CO₂ reading stays at the panel's bottom.
+- The indicator's radius grows proportionally to CO₂, reaching its maximum at twice the
+  configured critical threshold (2000 ppm by default), then stays capped. At 1000 ppm it has
+  half its maximum radius. Maximum radius is `60% × indicator scale` of the panel's shorter
+  dimension: scale `1` gives 60%, `0.5` gives 30%, and `1.5` gives 90%. It stays anchored to
+  the corner when the panel expands from the right third to the right half for focus events.
+  Changes ease over one second; reduced-motion preferences apply updates immediately.
 - An empty calendar says “No upcoming events”; a failed read says “Calendar unavailable”.
   Event details are removed after a failed read. Missing, unknown, non-numeric, negative or
-  incompatible-unit CO2 readings say “CO₂ unavailable” and use the original dark background
-  (`#151c24`), even when the normal color has been customized.
+  incompatible-unit CO2 readings say “CO₂ unavailable” and hide the indicator.
 - On a Home Assistant disconnection, event details are removed and CO2 becomes unavailable.
   The clock continues. A calendar failure alone does not invalidate a working CO2 sensor.
 
@@ -148,7 +158,7 @@ npm test
 ```
 
 Open <http://127.0.0.1:8765/> for the interactive preview. It uses synthetic events and CO2
-values, with scenario and time controls. It never connects to Home Assistant. The server binds
+values, with scenario, time, and indicator-scale controls. It never connects to Home Assistant. The server binds
 only to loopback and serves the two preview files and card module. Stop with Ctrl-C.
 To choose another port: `npm run preview -- 8766`.
 
@@ -164,8 +174,9 @@ npm run test:browser
 
 Browser checks cover Done dismissals, keyboard activation and reset on reload,
 refresh/timeout/reconnect behavior, offline/empty states, safe title rendering,
-custom CO₂ settings and text contrast, editor validation/reset, and calendar-panel
-geometry and layout at 1280×800, 960×600 and 800×480. Screenshots are saved
+custom CO₂ settings, indicator growth/scale/anchoring, text contrast, transitions and reduced
+motion, editor validation/reset, and calendar-panel geometry and layout at 1280×800,
+960×600 and 800×480. Screenshots are saved
 under `/tmp/echo-show-dashboard`. Set `ECHO_SCREENSHOT_DIR` to change that directory, or
 `ECHO_CHROMIUM_PATH` to use an existing Chromium executable. An external Playwright module
 can be supplied with `ECHO_PLAYWRIGHT_MODULE`.

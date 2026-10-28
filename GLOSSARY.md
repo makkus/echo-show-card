@@ -11,8 +11,12 @@ The right-hand region showing either upcoming events or a countdown or ongoing e
 One of normal, warning, or critical, determined by comparing an available CO₂ reading against two thresholds.
 _Avoid_: Yellow level, red level
 
-**CO₂ background**:
-The calendar panel's background color corresponding to the current CO₂ level.
+**CO₂ corner indicator**:
+A filled quarter circle at the calendar panel's top-right corner whose color shows the CO₂ level and whose size increases continuously with the reading, up to a maximum.
+_Avoid_: CO₂ background
+
+**Indicator scale**:
+A size multiplier for the CO₂ corner indicator that does not change its CO₂ level or color.
 
 **Unavailable CO₂ reading**:
 A missing or unusable sensor reading, for which no CO₂ level can be determined.
