@@ -24,7 +24,8 @@
   </select></label>
   <label>CO₂ <select id="co2"><option>500</option><option>600</option><option>800</option><option>1000</option><option>1000.1</option><option>1200</option><option>2000</option><option>3000</option><option>unavailable</option></select></label>
   <label>Indicator scale <input id="scale" type="range" min="0.5" max="1.5" step="0.1" value="1"><output id="scale-label">1</output></label>
-  <label>Corner <select id="corner"><option>top-right</option><option>top-left</option><option>bottom-left</option><option>bottom-right</option></select></label>
+  <label>Center X <input id="x" type="range" min="0" max="100" step="0.5" value="100"><output id="x-label">100%</output></label>
+  <label>Center Y <input id="y" type="range" min="0" max="100" step="0.5" value="0"><output id="y-label">0%</output></label>
   <label>Readings <select id="values"><option value="default">CO₂ default</option><option value="0">None</option><option value="1">One</option><option value="2" selected>Two</option><option value="3">Three</option><option value="4">Four</option><option value="long">Four with long labels</option></select></label>
   <label>Time ahead <input id="offset" type="range" min="0" max="130" value="0"><output id="offset-label">0 min</output></label>
   <button id="reset">Reset time</button>

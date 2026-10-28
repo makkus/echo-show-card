@@ -14,7 +14,9 @@ views:
         # co2_warning_color: "#e5c76b"
         # co2_critical_color: "#af4d47"
         # co2_indicator_scale: 1
-        # co2_indicator_corner: top-right
+        # Circle center across the whole card (%): 0/0 top-left, 50/50 center.
+        # co2_indicator_x: 100
+        # co2_indicator_y: 0
         # Omit values to show the selected CO₂ sensor, or use [] to hide readings.
         # values:
         #   - entity: sensor.co2

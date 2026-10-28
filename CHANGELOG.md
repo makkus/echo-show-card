@@ -11,6 +11,8 @@
 - Bottom-aligned calendar content with responsive padding and a separate values section
   beneath the clock for up to four ordered sensor readings. Readings use Home Assistant
   formatting, optional labels, unavailable placeholders, and tap/keyboard entity details.
-- Configurable CO₂ indicator corner in YAML and the visual editor; defaults to top-right.
+- Configurable CO₂ circle center across the full card using X/Y percentages. Card edges
+  reveal quarter, half, or full circles; clock/date/readings retain dark text backing.
+  Legacy corner settings supply defaults for omitted coordinates.
 - Visual calendar and sensor configuration, synthetic preview and browser checks.
 - HACS packaging for the first planned release, `v0.1.0`.

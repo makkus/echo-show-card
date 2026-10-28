@@ -15,11 +15,14 @@ not been verified for this change.
   bottom left, with CO₂, room temperature, and additional selected sensors.
 - Keep the values section within the left region so it does not reduce calendar
   height. It remains beneath the clock in both agenda and focus layouts.
-- Add a configuration option for all four calendar-panel corners, defaulting to
-  top-right. A left-hand corner is beside the column divider, not the screen's
-  left edge.
-- Check readability where bottom-corner indicators overlap the bottom-aligned
-  calendar, including Done.
+- Position the CO₂ circle by its center across the full card, including the clock
+  region. X/Y percentages range from 0 to 100; `0 / 0` is the card's top-left,
+  `50 / 50` is its center, and `100 / 0` is the default top-right position.
+- Only the full card clips the circle. Corners expose a quarter circle; moving
+  inward can reveal a half or full circle. Retain the calendar-panel radius basis
+  so changing position does not change its size.
+- Preserve readability and usable controls when the indicator overlaps calendar
+  content, the clock/date, or the values section.
 
 ## Agreed values section
 
@@ -60,21 +63,23 @@ not been verified for this change.
   step; do not guess which temperature entity represents this room.
 - Keep `co2_entity` independent of the explicit readings list. Adding or removing
   a displayed CO₂ reading does not change the sensor driving the corner indicator.
-- Expose the corner as `co2_indicator_corner`, with `top-right` as the default and
-  `top-left`, `bottom-left`, and `bottom-right` as the other choices. Include the
-  selector in the visual editor and validate YAML values.
-- Resetting CO₂ settings restores the default corner alongside the existing
+- Expose the center as `co2_indicator_x` and `co2_indicator_y`, with defaults of
+  100 and 0. Include coordinate fields in the visual editor and validate finite
+  percentages from 0 through 100, including fractions.
+- The legacy `co2_indicator_corner` setting still supplies defaults for omitted
+  coordinates, now relative to the full card. Explicit coordinate axes take precedence.
+- Resetting CO₂ settings restores the default position alongside the existing
   threshold, color, and scale defaults, preserving entity selections and the
   explicit readings list.
 
 ## Verification
 
-- `npm test`: all 24 logic tests passed. Coverage includes defaults, explicit empty
-  lists, ordering, label overrides, list-size and corner validation, HA formatter
+- `npm test`: all 26 logic tests passed. Coverage includes defaults, explicit empty
+  lists, ordering, label overrides, list-size and coordinate validation, HA formatter
   output, negative temperatures, and missing/invalid/unavailable/disconnected readings.
 - `npm run check`: syntax and HACS packaging checks passed.
 - `npm run test:browser`: editor add/remove/reorder, invalid drafts, configuration
-  round trips, corner selection, CO₂ reset preserving explicit readings, and
+  round trips, coordinate fields, CO₂ reset preserving explicit readings, and
   returning to the CO₂ default all passed. Controls fit a 400-pixel-wide editor.
 - Pointer, Enter, and Space activation emitted the expected bubbling, composed
   `hass-more-info` request for the correct entity. Temporarily unavailable readings
@@ -84,13 +89,16 @@ not been verified for this change.
   values section were checked at 1280×800, 960×600, and 800×480. The clock retains
   a clear gap above readings, which stay inside the left region with touch targets
   of at least 48 px. Calendar layouts retain 24–48 px of bottom padding.
-- All four corners were checked at maximum size. Done was actually clicked with
-  each corner at each viewport size. Existing radius, geometry, color, threshold,
+- All four full-card corners were checked at maximum size. Done was actually clicked
+  with each corner at each viewport size. Edge, center, and fractional positions
+  expose quarter, half, or full circles without clipping at the column divider.
+  Container resizing updates the position without a new HA state or clock tick.
+  Existing radius, geometry, color, threshold,
   scale, refresh, dismissal, timeout, reconnect, motion, and reduced-motion checks
   passed. Text retains at least 4.5:1 contrast over a white indicator at bottom-right.
 - Representative four-reading, long-label, bottom-corner, and editor screenshots
   were visually inspected. Screenshots are under `/tmp/echo-show-dashboard`.
-- The local preview includes values and corner controls plus a clearly identified
+- The local preview includes values and X/Y position controls plus a clearly identified
   synthetic details dialog. Tests verify event emission; actual native dialog
   rendering and history in Home Assistant remain separate checks.
 
@@ -112,7 +120,7 @@ not been verified for this change.
 
 The existing CO₂ growth, colors, thresholds, scale, and motion behavior are described
 in [the CO₂ design](co2-warning-design.md). They remain unchanged apart from choosing
-the indicator's corner and moving numerical CO₂ display into the values section.
+the indicator's coordinates and moving numerical CO₂ display into the values section.
 
 These are reversible layout and configuration changes; a separate architecture
 decision record is unnecessary.

@@ -1,7 +1,7 @@
 {
   "name": "echo-show-card",
   "version": "0.1.0",
-  "description": "Home Assistant kiosk clock, calendar agenda and CO2 corner indicator",
+  "description": "Home Assistant kiosk clock, calendar agenda and CO2 indicator",
   "private": true,
   "type": "module",
   "license": "MIT",

@@ -17,12 +17,15 @@ A selected sensor's numerical value in the values section, identified by a label
 One of normal, warning, or critical, determined by comparing an available CO₂ reading against two thresholds.
 _Avoid_: Yellow level, red level
 
-**CO₂ corner indicator**:
-A filled quarter circle anchored at a chosen calendar-panel corner whose color shows the CO₂ level and whose size increases continuously with the reading, up to a maximum.
-_Avoid_: CO₂ background
+**CO₂ indicator**:
+A filled circle whose color shows the CO₂ level and whose size increases continuously with the reading, up to a maximum. The card edges clip the circle when its center is near an edge or corner.
+_Avoid_: CO₂ background, CO₂ corner indicator
+
+**Indicator position**:
+The center of the CO₂ indicator, measured across the full card from its top-left corner.
 
 **Indicator scale**:
-A size multiplier for the CO₂ corner indicator that does not change its CO₂ level or color.
+A size multiplier for the CO₂ indicator that does not change its CO₂ level or color.
 
 **Unavailable CO₂ reading**:
 A missing or unusable sensor reading, for which no CO₂ level can be determined.

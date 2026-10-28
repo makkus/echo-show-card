@@ -1,8 +1,8 @@
 # Echo Show clock and agenda
 
 A Home Assistant card for a quiet kiosk display: a large clock, an upcoming calendar agenda,
-and an event countdown that becomes an ongoing-event display. A filled quarter circle in the
-calendar panel's selected corner changes color and grows with CO2 while the background stays
+and an event countdown that becomes an ongoing-event display. A filled circle at a configurable
+position across the card changes color and grows with CO2 while the background stays
 dark. Up to four sensor readings sit below the clock, and calendar text aligns near the bottom.
 Originally designed for an Echo Show 8
 running an Android kiosk browser; it can be used in other Home Assistant browsers too.
@@ -11,7 +11,7 @@ running an Android kiosk browser; it can be used in other Home Assistant browser
 ## Installation
 
 Requires Home Assistant **2026.10.4 or newer**, a calendar integration exposing a `calendar.*`
-entity, and a browser with modern JavaScript support. For the corner indicator, select a
+entity, and a browser with modern JavaScript support. For the CO₂ indicator, select a
 CO2 sensor reporting in **ppm**. There are no runtime dependencies or separate credentials.
 The card uses the existing Home Assistant user's read access to the selected entities.
 
@@ -52,7 +52,7 @@ installation so the browser loads one copy of the card.
    through the **Raw configuration editor**. This sets a panel view containing exactly one card.
 3. Open the card's visual editor. Choose your main calendar and enter or select the CO2 sensor.
    Under **CO₂ warnings**, adjust the two ppm thresholds, warning and critical colors, and
-   indicator scale and corner if desired. Under **Sensor values**, add up to four sensor
+   indicator scale and center coordinates if desired. Under **Sensor values**, add up to four sensor
    readings, give them optional labels, and reorder them.
    Save, then check the live event list and numerical reading against Home Assistant.
 4. Open `/echo-show/clock` on your kiosk. Record its current start URL before changing it.
@@ -83,19 +83,22 @@ default sensor reading.
 | `values` | Ordered list of up to four sensor readings with optional labels; `[]` hides the section | Selected CO₂ sensor, if any |
 | `co2_warning_threshold` | Warning starts at this reading, in ppm | `600` |
 | `co2_critical_threshold` | Critical starts strictly above this reading, in ppm | `1000` |
-| `co2_warning_color` | Corner indicator from warning through critical threshold, inclusive | `"#e5c76b"` |
-| `co2_critical_color` | Corner indicator above the critical threshold | `"#af4d47"` |
+| `co2_warning_color` | Indicator from warning through critical threshold, inclusive | `"#e5c76b"` |
+| `co2_critical_color` | Indicator above the critical threshold | `"#af4d47"` |
 | `co2_indicator_scale` | Maximum-radius multiplier, from `0.5` to `1.5` | `1` |
-| `co2_indicator_corner` | `top-right`, `top-left`, `bottom-left`, or `bottom-right` of the calendar panel | `"top-right"` |
+| `co2_indicator_x` | Circle center horizontally across the full card, from `0` to `100` percent | `100` (right edge) |
+| `co2_indicator_y` | Circle center vertically down the full card, from `0` to `100` percent | `0` (top edge) |
+| `co2_indicator_corner` | Legacy corner default for omitted coordinate axes: `top-right`, `top-left`, `bottom-left`, or `bottom-right`, now relative to the full card | `"top-right"` |
 | `co2_normal_color` | Legacy color, accepted for compatibility; normal readings hide the indicator | `"#151c24"` |
 
-The thresholds, two indicator colors, scale, and corner are available in the card's visual editor.
+The thresholds, two indicator colors, scale, and center coordinates are available in the card's visual editor.
 Colors have a picker and an editable six-digit hex value (`#RRGGBB`). The panel stays dark,
-with dark backing behind calendar text to keep it readable when the indicator overlaps it.
+with dark backing behind calendar text, the clock/date, and readings to keep them readable when the indicator overlaps them.
 Thresholds accept nonnegative, finite numbers, including fractions, and the warning threshold
 must be strictly below the critical threshold. Scale accepts finite numbers from `0.5` through
 `1.5`, including fractions. Invalid entries show an error and do not update the applied
-configuration. **Reset CO₂ settings** restores the thresholds, colors, scale, and corner while
+configuration. Coordinates accept finite numbers from `0` through `100`, including fractions.
+**Reset CO₂ settings** restores the thresholds, colors, scale, and position (`100 / 0`) while
 preserving entity selections and the explicit readings list. The legacy normal-color setting is accepted in YAML but has
 no visual effect and is omitted from the editor.
 
@@ -110,7 +113,8 @@ co2_critical_threshold: 1200
 co2_warning_color: "#e5c76b"
 co2_critical_color: "#af4d47"
 co2_indicator_scale: 1
-co2_indicator_corner: bottom-right
+co2_indicator_x: 0
+co2_indicator_y: 0
 values:
   - entity: sensor.co2
     label: CO₂
@@ -119,6 +123,17 @@ values:
 ```
 
 Omitted settings use their defaults, so existing dashboard configurations continue to work.
+
+Coordinates locate the **circle's center across the whole card**, including the clock region.
+`0 / 0` is the card's top-left corner and displays a quarter circle; `50 / 0` places it at
+the middle of the top edge and can show a half circle. `50 / 50` is the center of the card
+and can show the whole circle when its radius fits. `100 / 100` is bottom-right. Only the
+card edges clip it; it can cross the column divider. Use **Circle center X (%)** and
+**Circle center Y (%)** in the visual editor or the two YAML settings above.
+
+Legacy `co2_indicator_corner` configurations still supply omitted X/Y values, now at the
+full card's corners. Explicit coordinates override their respective axes. The legacy
+selector has been replaced by coordinate fields in the editor.
 
 The example entity IDs are placeholders; choose your actual sensors. If `values` is omitted,
 the selected `co2_entity` appears below the clock. An explicit list replaces that default
@@ -160,8 +175,8 @@ Home Assistant's [History and Recorder configuration](https://www.home-assistant
   are not modified. An event whose title or scheduled times change can take focus again.
 - The clock is 24-hour `HH:MM`, with weekday and date underneath. Labels are English and
   times use Home Assistant's timezone, including all-day event dates and DST transitions.
-- A filled quarter circle grows inward from the selected calendar-panel corner (top-right by default).
-  A left corner is at the column divider, not the display's left edge. By default
+- A filled circle grows around its configured center across the full card (top-right by default).
+  At a card corner, clipping leaves a quarter circle visible; moving inward reveals more of it. By default
   it is hidden below 600 ppm, muted yellow from **600 through 1000**, and muted red **above
   1000**. The panel and clock stay dark. The calendar has no numerical CO₂ footer; readings
   belong in the separate values section below the clock.
@@ -169,7 +184,8 @@ Home Assistant's [History and Recorder configuration](https://www.home-assistant
   configured critical threshold (2000 ppm by default), then stays capped. At 1000 ppm it has
   half its maximum radius. Maximum radius is `60% × indicator scale` of the panel's shorter
   dimension: scale `1` gives 60%, `0.5` gives 30%, and `1.5` gives 90%. It stays anchored to
-  the corner when the panel expands from the right third to the right half for focus events.
+  its configured percentage position when the card resizes. The radius retains its existing
+  calendar-panel basis when the panel expands from the right third to the right half for focus events.
   Changes ease over one second; reduced-motion preferences apply updates immediately.
 - An empty calendar says “No upcoming events”; a failed read says “Calendar unavailable”.
   Event details are removed after a failed read. Missing, unknown, non-numeric, negative or
@@ -195,7 +211,7 @@ npm test
 ```
 
 Open <http://127.0.0.1:8765/> for the interactive preview. It uses synthetic events and CO2
-values, with scenario, time, scale, corner, and readings controls. Tapping a reading opens a
+values, with scenario, time, scale, X/Y position sliders, and readings controls. Tapping a reading opens a
 synthetic details dialog; real Home Assistant history is not loaded. The server binds
 only to loopback and serves the two preview files and card module. Stop with Ctrl-C.
 To choose another port: `npm run preview -- 8766`.
@@ -212,7 +228,7 @@ npm run test:browser
 
 Browser checks cover Done dismissals, keyboard activation and reset on reload,
 refresh/timeout/reconnect behavior, offline/empty states, safe title rendering,
-custom CO₂ settings, all four indicator corners, sensor reading defaults/formatting/tap/keyboard,
+custom CO₂ settings, whole-card indicator coordinates and clipping, sensor reading defaults/formatting/tap/keyboard,
 editor add/remove/reorder/reset, text contrast, transitions and reduced motion, and calendar-panel
 geometry and one-to-four-reading layouts at 1280×800,
 960×600 and 800×480. Screenshots are saved

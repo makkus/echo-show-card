@@ -117,7 +117,7 @@ try {
     assert.equal(await card.getAttribute("data-co2"), band);
     const actual = await appearance();
     const { indicator, opacity, size, ...base } = actual;
-    assert.deepEqual(base, { background: "rgb(21, 28, 36)", ink: "rgb(240, 243, 246)", clock: "rgb(21, 28, 36)", time: "rgb(240, 243, 246)", date: "rgb(172, 182, 194)" });
+    assert.deepEqual(base, { background: "rgba(0, 0, 0, 0)", ink: "rgb(240, 243, 246)", clock: "rgb(21, 28, 36)", time: "rgb(240, 243, 246)", date: "rgb(172, 182, 194)" });
     assert.equal(opacity, color ? 1 : 0);
     if (color) assert.equal(indicator, color);
     assert.ok(Math.abs(size - fraction) < 0.00001, `growth fraction for ${value}`);
@@ -370,13 +370,28 @@ try {
   await rows.first().locator("[data-value-down]").click();
   await rows.nth(3).locator("[data-value-remove]").click();
   assert.equal(await rows.count(), 3);
-  await editor.locator('[data-setting="co2_indicator_corner"]').selectOption("bottom-left");
-  assert.equal((await page.evaluate(() => window.editorConfig)).co2_indicator_corner, "bottom-left");
+  const xInput = editor.locator('[data-setting="co2_indicator_x"]');
+  const yInput = editor.locator('[data-setting="co2_indicator_y"]');
+  assert.equal(await xInput.inputValue(), "100");
+  assert.equal(await yInput.inputValue(), "0");
+  const beforeInvalidPosition = await page.evaluate(() => window.editorChanges.length);
+  for (const input of [xInput, yInput]) {
+    for (const value of ["-1", "101", ""]) {
+      await input.fill(value);
+      assert.match(await editor.locator('[role="alert"]').textContent(), /0 to 100 percent/);
+      assert.equal(await page.evaluate(() => window.editorChanges.length), beforeInvalidPosition);
+    }
+  }
+  await xInput.fill("12.5");
+  await yInput.fill("73.25");
+  assert.equal((await page.evaluate(() => window.editorConfig)).co2_indicator_x, 12.5);
+  assert.equal((await page.evaluate(() => window.editorConfig)).co2_indicator_y, 73.25);
   const explicitReadings = (await page.evaluate(() => window.editorConfig)).values;
   await editor.screenshot({ path: `${shots}/values-editor.png` });
   assert.equal(await editor.evaluate((element) => [...element.shadowRoot.querySelectorAll("input,select,button,fieldset")].some((control) => control.getBoundingClientRect().right > element.getBoundingClientRect().right)), false);
   await editor.locator("[data-reset]").click();
-  assert.equal(await editor.locator('[data-setting="co2_indicator_corner"]').inputValue(), "top-right");
+  assert.equal(await xInput.inputValue(), "100");
+  assert.equal(await yInput.inputValue(), "0");
   assert.deepEqual((await page.evaluate(() => window.editorConfig)).values, explicitReadings);
   assert.equal((await page.evaluate(() => window.editorConfig)).co2_entity, "sensor.co2");
   await editor.locator("[data-default-values]").click();
@@ -436,7 +451,7 @@ try {
       assert.ok(geometry.bottomPadding >= 24 && geometry.bottomPadding <= 48, "bottom padding must stay comfortable");
       assert.equal(geometry.contentInside, true);
       assert.equal(geometry.clock, "rgb(21, 28, 36)");
-      assert.equal(geometry.background, "rgb(21, 28, 36)");
+      assert.equal(geometry.background, "rgba(0, 0, 0, 0)");
       if (width === 1280) {
         await page.screenshot({ path: `${shots}/${name}.png` });
       }
@@ -456,12 +471,13 @@ try {
           const shape = await page.evaluate(() => {
             const root = window.echoPreview.card.shadowRoot;
             const svg = root.querySelector(".co2-indicator");
+            const panel = root.querySelector(".calendar-panel");
             const circle = root.querySelector(".co2-shape");
             const bounds = svg.getBoundingClientRect();
             const disk = circle.getBoundingClientRect();
             return { radius: disk.width / 2, height: disk.height, opacity: Number(getComputedStyle(circle).opacity),
               cornerX: disk.left + disk.width / 2 - bounds.right, cornerY: disk.top + disk.height / 2 - bounds.top,
-              shorter: Math.min(bounds.width, bounds.height), pointerEvents: getComputedStyle(svg).pointerEvents,
+              shorter: Math.min(panel.clientWidth, panel.clientHeight), pointerEvents: getComputedStyle(svg).pointerEvents,
               accessible: svg.getAttribute("aria-hidden") };
           });
           const visible = !["500", "unavailable"].includes(reading);
@@ -518,19 +534,21 @@ try {
 
       for (const corner of ["top-right", "top-left", "bottom-left", "bottom-right"]) {
         await page.evaluate(async (corner) => {
-          document.querySelector("#corner").value = corner;
+          document.querySelector("#x").value = corner.endsWith("right") ? 100 : 0;
+          document.querySelector("#y").value = corner.startsWith("bottom") ? 100 : 0;
           window.echoPreview.card._dismissedEvents = [];
           await window.echoPreview.render();
         }, corner);
         const shape = await page.evaluate((corner) => {
           const root = window.echoPreview.card.shadowRoot;
           const svg = root.querySelector(".co2-indicator").getBoundingClientRect();
+          const panel = root.querySelector(".calendar-panel");
           const disk = root.querySelector(".co2-shape").getBoundingClientRect();
           const targetX = corner.endsWith("right") ? svg.right : svg.left;
           const targetY = corner.startsWith("bottom") ? svg.bottom : svg.top;
           const done = root.querySelector(".done");
           return { x: disk.left + disk.width / 2 - targetX, y: disk.top + disk.height / 2 - targetY,
-            radius: disk.width / 2, expected: Math.min(svg.width, svg.height) * 0.9,
+            radius: disk.width / 2, expected: Math.min(panel.clientWidth, panel.clientHeight) * 0.9,
             doneAbove: done.hidden || getComputedStyle(done.closest(".calendar-content")).zIndex === "1" };
         }, corner);
         assert.ok(Math.abs(shape.x) < 0.1 && Math.abs(shape.y) < 0.1, `${name} must anchor to ${corner}`);
@@ -543,7 +561,51 @@ try {
         }
       }
       // Restore the anchor for the existing growth checks at the next viewport.
-      await page.evaluate(() => { document.querySelector("#corner").value = "top-right"; });
+      await page.evaluate(() => { document.querySelector("#x").value = "100"; document.querySelector("#y").value = "0"; });
+    }
+
+    // Coordinates refer to the full card, including its left half. The outer SVG
+    // clips at card edges; the transparent layout must not clip at the divider.
+    for (const name of ["agenda", "ongoing"]) {
+      for (const [x, y] of [[0, 0], [50, 0], [50, 50], [12.5, 73.25], [100, 100]]) {
+        await page.evaluate(async ({ name, x, y }) => {
+          document.querySelector("#scenario").value = name;
+          document.querySelector("#co2").value = "2000";
+          document.querySelector("#scale").value = "0.5";
+          window.echoPreview.card._dismissedEvents = [];
+          await window.echoPreview.render();
+          const card = window.echoPreview.card;
+          card.setConfig({ ...card._config, co2_indicator_x: x, co2_indicator_y: y });
+        }, { name, x, y });
+        const position = await page.evaluate(() => {
+          const root = window.echoPreview.card.shadowRoot;
+          const svg = root.querySelector(".co2-indicator");
+          const display = root.querySelector(".display");
+          const panel = root.querySelector(".calendar-panel");
+          const bounds = display.getBoundingClientRect();
+          const disk = root.querySelector("circle").getBoundingClientRect();
+          const clipped = [disk.left < bounds.left - 0.1, disk.top < bounds.top - 0.1,
+            disk.right > bounds.right + 0.1, disk.bottom > bounds.bottom + 0.1];
+          return { x: ((disk.left + disk.right) / 2 - bounds.left) / bounds.width * 100,
+            y: ((disk.top + disk.bottom) / 2 - bounds.top) / bounds.height * 100,
+            radius: disk.width / 2, expectedRadius: Math.min(panel.clientWidth, panel.clientHeight) * 0.3,
+            circular: Math.abs(disk.width - disk.height) < 0.1, clipped,
+            outer: svg.parentElement === display, overflow: getComputedStyle(svg).overflow,
+            fullWidth: Math.abs(svg.getBoundingClientRect().width - bounds.width) < 0.1,
+            panelBackground: getComputedStyle(panel).backgroundColor };
+        });
+        assert.ok(Math.abs(position.x - x) < 0.01 && Math.abs(position.y - y) < 0.01, `${name} ${width}: center ${x}/${y} must use the full card`);
+        assert.ok(Math.abs(position.radius - position.expectedRadius) < 0.1);
+        assert.equal(position.circular, true);
+        assert.equal(position.outer, true);
+        assert.equal(position.fullWidth, true);
+        assert.equal(position.overflow, "hidden");
+        assert.equal(position.panelBackground, "rgba(0, 0, 0, 0)");
+        if (x === 0 && y === 0) assert.deepEqual(position.clipped, [true, true, false, false], "0/0 shows a quarter circle");
+        if (x === 50 && y === 0) assert.deepEqual(position.clipped, [false, true, false, false], "50/0 shows a half circle");
+        if (x === 50 && y === 50) assert.deepEqual(position.clipped, [false, false, false, false], "50/50 can show the whole circle");
+        await page.screenshot({ path: `${shots}/position-${x}-${y}-${name}-${width}.png` });
+      }
     }
   }
 
@@ -554,7 +616,7 @@ try {
     window.echoPreview.card._dismissedEvents = [];
     await window.echoPreview.render();
     const card = window.echoPreview.card;
-    card.setConfig({ ...card._config, co2_critical_color: "#ffffff", co2_indicator_scale: 1.5, co2_indicator_corner: "bottom-right" });
+    card.setConfig({ ...card._config, co2_critical_color: "#ffffff", co2_indicator_scale: 1.5, co2_indicator_x: 100, co2_indicator_y: 100 });
     card._hass.states[card._config.co2_entity].state = "3000";
     card.hass = { ...card._hass };
   });
@@ -577,6 +639,15 @@ try {
   await page.screenshot({ path: `${shots}/white-indicator-max.png` });
   await card.getByRole("button", { name: "Done", exact: true }).click();
   assert.equal(await card.locator(".agenda").isVisible(), true);
+  await page.evaluate(() => {
+    const card = window.echoPreview.card;
+    card.setConfig({ ...card._config, co2_indicator_x: 25, co2_indicator_y: 65 });
+  });
+  const leftReading = card.locator(".reading").first();
+  await leftReading.click();
+  assert.equal(await page.locator("dialog").isVisible(), true, "a circle behind readings must not intercept clicks");
+  await page.locator("dialog button").click();
+  await page.screenshot({ path: `${shots}/position-white-behind-clock-values.png` });
 
   // Use a separate real-time page so CSS transitions run independently of the
   // mocked calendar clock. Verify movement between endpoints, then reduced motion.
@@ -606,9 +677,26 @@ try {
   await motionPage.selectOption("#co2", "500");
   assert.equal((await motionState()).opacity, 0);
   assert.equal((await motionState()).size, 0);
+  // Resize without a new HA state or clock tick; the observer updates pixel geometry.
+  await motionPage.evaluate(() => {
+    const card = window.echoPreview.card;
+    card.setConfig({ ...card._config, co2_indicator_x: 50, co2_indicator_y: 50 });
+    card.style.width = "600px";
+  });
+  await motionPage.waitForFunction(() => {
+    const root = window.echoPreview.card.shadowRoot;
+    const display = root.querySelector(".display");
+    const matrix = root.querySelector(".co2-indicator g").transform.baseVal.consolidate().matrix;
+    return Math.abs(matrix.e - display.clientWidth / 2) < 0.1;
+  });
+  assert.equal(await motionPage.evaluate(() => {
+    const root = window.echoPreview.card.shadowRoot;
+    const panel = root.querySelector(".calendar-panel");
+    return Math.abs(Number(root.querySelector("circle").getAttribute("r")) - Math.min(panel.clientWidth, panel.clientHeight) * 0.6) < 0.1;
+  }), true);
   await motionPage.close();
   assert.deepEqual(errors, []);
-  console.log(`Browser checks passed: calendar states/lifecycle/Done, safe text, readings/defaults/tap/keyboard, editor add/remove/reorder/reset, 1–4 readings and all corners at 3 viewport sizes, text contrast, growth/transitions/reduced motion. Screenshots: ${shots}`);
+  console.log(`Browser checks passed: calendar states/lifecycle/Done, readings/tap/keyboard, editor validation/reset, 1–4 readings and whole-card coordinates at 3 viewport sizes, quarter/half/full circles, resize, contrast, growth/transitions/reduced motion. Screenshots: ${shots}`);
 } finally {
   if (browser) await browser.close();
   await new Promise((resolve) => server.close(resolve));

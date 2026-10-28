@@ -9,6 +9,8 @@ export const DEFAULT_CO2_SETTINGS = Object.freeze({
   co2_critical_color: "#af4d47",
   co2_indicator_scale: 1,
   co2_indicator_corner: "top-right",
+  co2_indicator_x: 100,
+  co2_indicator_y: 0,
 });
 const MINUTE = 60_000;
 const DAY = 24 * 60 * MINUTE;
@@ -97,9 +99,18 @@ export function displayEvents(events, now, dismissedEvents = []) {
   return { focus, agenda };
 }
 
+function co2Defaults(config) {
+  // Legacy corner configurations supply defaults for omitted coordinate axes.
+  const corner = typeof config.co2_indicator_corner === "string" ? config.co2_indicator_corner : "top-right";
+  return { ...DEFAULT_CO2_SETTINGS,
+    co2_indicator_x: corner.endsWith("left") ? 0 : 100,
+    co2_indicator_y: corner.startsWith("bottom") ? 100 : 0,
+  };
+}
+
 export function co2Settings(config = {}) {
   const settings = {};
-  for (const [key, fallback] of Object.entries(DEFAULT_CO2_SETTINGS)) {
+  for (const [key, fallback] of Object.entries(co2Defaults(config))) {
     const value = config[key] === undefined ? fallback : config[key];
     const label = key.replace("co2_", "CO₂ ").replaceAll("_", " ");
     if (key.endsWith("_threshold")) {
@@ -114,6 +125,11 @@ export function co2Settings(config = {}) {
       settings[key] = value;
     } else if (key === "co2_indicator_corner") {
       if (!CO2_CORNERS.includes(value)) throw new Error("Choose a CO₂ indicator corner: top-right, top-left, bottom-left, or bottom-right");
+      settings[key] = value;
+    } else if (key === "co2_indicator_x" || key === "co2_indicator_y") {
+      if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 100) {
+        throw new Error(`${label} must be a number from 0 to 100 percent`);
+      }
       settings[key] = value;
     } else {
       if (typeof value !== "string" || !/^#[0-9a-f]{6}$/i.test(value.trim())) {
@@ -188,8 +204,8 @@ const STYLES = `
     --bg:#151c24; --ink:#f0f3f6; --muted:#acb6c2;
     --pad:clamp(22px,4vw,60px); --bottom-pad:clamp(24px,5vh,48px); font-family:system-ui,-apple-system,"Segoe UI",sans-serif; }
   * { box-sizing:border-box; }
-  .display { height:100%; width:100%; overflow:hidden; background:var(--bg); color:var(--ink); }
-  .layout { height:100%; min-height:0; display:grid; grid-template-columns:minmax(0,2fr) minmax(0,1fr); }
+  .display { position:relative; isolation:isolate; height:100%; width:100%; overflow:hidden; background:var(--bg); color:var(--ink); }
+  .layout { position:relative; z-index:1; height:100%; min-height:0; display:grid; grid-template-columns:minmax(0,2fr) minmax(0,1fr); }
   :host([data-focus]) .layout { grid-template-columns:minmax(0,1fr) minmax(0,1fr); }
   .clock { text-align:center; min-width:0; min-height:0; padding:var(--pad); padding-bottom:var(--bottom-pad); display:flex; flex-direction:column; }
   .clock-content { flex:1; min-height:0; display:flex; flex-direction:column; justify-content:center; }
@@ -208,7 +224,7 @@ const STYLES = `
   .reading[data-unavailable] .reading-value { color:var(--muted); }
   @media (min-width:1100px) { :host(:not([data-focus])) .values { grid-template-columns:repeat(var(--value-count),minmax(0,1fr)); } }
   .calendar-panel { min-width:0; min-height:0; padding:var(--pad); padding-bottom:var(--bottom-pad); display:flex; flex-direction:column;
-    position:relative; isolation:isolate; background:var(--bg); border-left:1px solid #ffffff22; }
+    position:relative; isolation:isolate; border-left:1px solid #ffffff22; }
   .co2-indicator { position:absolute; top:0; right:0; width:100%; height:100%; overflow:hidden;
     pointer-events:none; z-index:0; }
   .co2-shape { fill:var(--co2-color,#151c24); transform:scale(var(--co2-size,0)); opacity:var(--co2-visible,0);
@@ -298,12 +314,14 @@ export class EchoShowCard extends ElementBase {
   connectedCallback() {
     this._timer = setInterval(() => this._tick(), 1000);
     document.addEventListener("visibilitychange", this._onVisible);
+    this._observeIndicator();
     this._tick();
   }
 
   disconnectedCallback() {
     clearInterval(this._timer);
     document.removeEventListener("visibilitychange", this._onVisible);
+    this._indicatorResize?.disconnect();
     this._invalidate("loading");
   }
 
@@ -383,6 +401,23 @@ export class EchoShowCard extends ElementBase {
     this._render();
   }
 
+  _observeIndicator() {
+    if (!this.shadowRoot) return;
+    this._indicatorResize ??= new ResizeObserver(() => this._positionIndicator());
+    for (const selector of [".display", ".calendar-panel"]) this._indicatorResize.observe(this.shadowRoot.querySelector(selector));
+  }
+
+  _positionIndicator() {
+    if (!this.isConnected || !this.shadowRoot) return;
+    const display = this.shadowRoot.querySelector(".display");
+    const panel = this.shadowRoot.querySelector(".calendar-panel");
+    const indicator = this.shadowRoot.querySelector(".co2-indicator");
+    // SVG user units are CSS pixels: positions use the full card, while radius
+    // keeps its existing calendar-panel basis and stays circular at any aspect ratio.
+    indicator.querySelector("g").setAttribute("transform", `translate(${display.clientWidth * this._co2Settings.co2_indicator_x / 100} ${display.clientHeight * this._co2Settings.co2_indicator_y / 100})`);
+    indicator.querySelector("circle").setAttribute("r", Math.min(panel.clientWidth, panel.clientHeight) * 0.6);
+  }
+
   _renderValues() {
     const section = this.shadowRoot.querySelector(".values");
     section.hidden = this._values.length === 0;
@@ -396,7 +431,7 @@ export class EchoShowCard extends ElementBase {
         button = document.createElement("button");
         button.type = "button";
         button.className = "reading";
-        button.innerHTML = '<span class="reading-value"></span><span class="reading-label"></span>';
+        button.innerHTML = '<span class="reading-value"><span class="reading-text calendar-text"></span></span><span class="reading-label"><span class="calendar-text"></span></span>';
         section.append(button);
       }
       button.dataset.entity = reading.entity;
@@ -405,9 +440,9 @@ export class EchoShowCard extends ElementBase {
       const description = `${reading.label}: ${reading.available ? reading.parts.map((part) => part.value).join("") : "unavailable"}`;
       button.setAttribute("aria-label", `${description}. Open entity details`);
       button.title = description;
-      const label = button.querySelector(".reading-label");
+      const label = button.querySelector(".reading-label .calendar-text");
       if (label.textContent !== reading.label) label.textContent = reading.label;
-      const value = button.querySelector(".reading-value");
+      const value = button.querySelector(".reading-text");
       const key = JSON.stringify(reading.parts);
       if (value.dataset.parts !== key) {
         value.dataset.parts = key;
@@ -426,16 +461,15 @@ export class EchoShowCard extends ElementBase {
     if (!this.shadowRoot) {
       this.attachShadow({ mode: "open" }).innerHTML = `<style>${STYLES}</style>
         <section class="display" aria-label="Clock and calendar">
+          <svg class="co2-indicator" aria-hidden="true" focusable="false">
+            <g><circle class="co2-shape" r="0" /></g>
+          </svg>
           <main class="layout">
             <section class="clock" aria-label="Clock and sensor values">
-              <div class="clock-content"><time class="time"></time><div class="date"></div></div>
+              <div class="clock-content"><time class="time"><span class="calendar-text"></span></time><div class="date"><span class="calendar-text"></span></div></div>
               <section class="values" aria-label="Sensor values"></section>
             </section>
-            <section class="calendar-panel" aria-label="Calendar and CO₂">
-              <!-- A square viewBox fits the shorter panel dimension at the selected corner. -->
-              <svg class="co2-indicator" viewBox="0 0 100 100" preserveAspectRatio="xMaxYMin meet" aria-hidden="true" focusable="false">
-                <g transform="translate(100 0)"><circle class="co2-shape" r="60" /></g>
-              </svg>
+            <section class="calendar-panel" aria-label="Calendar">
               <div class="calendar-content">
                 <section class="agenda" aria-label="Upcoming events"><h2><span class="calendar-text">Coming up</span></h2><ul></ul><div class="empty"><span class="calendar-text"></span></div></section>
                 <section class="focus" aria-label="Focus event" hidden><h1 class="focus-title clamp"><span class="calendar-text"></span></h1><p class="focus-status"><span class="calendar-text"></span></p><button class="done" type="button" hidden>Done</button></section>
@@ -450,6 +484,7 @@ export class EchoShowCard extends ElementBase {
           detail: { entityId: button.dataset.entity }, bubbles: true, composed: true,
         }));
       });
+      this._observeIndicator();
     }
     const now = this._now();
     const timeZone = this._timeZone();
@@ -457,22 +492,17 @@ export class EchoShowCard extends ElementBase {
       const element = this.shadowRoot.querySelector(selector);
       if (element.textContent !== value) element.textContent = value;
     };
-    text(".time", formatter(timeZone, "clock").format(now));
-    text(".date", formatter(timeZone, "date").format(now));
+    text(".time .calendar-text", formatter(timeZone, "clock").format(now));
+    text(".date .calendar-text", formatter(timeZone, "date").format(now));
     const co2 = co2Reading(this._hass?.states?.[this._config.co2_entity], this._hass?.connected === true, this._co2Settings);
     this.dataset.co2 = co2.band;
     const visible = co2.band === "warning" || co2.band === "critical";
     const indicator = this.shadowRoot.querySelector(".co2-indicator");
-    const corner = this._co2Settings.co2_indicator_corner;
-    const right = corner.endsWith("right");
-    const bottom = corner.startsWith("bottom");
-    indicator.setAttribute("preserveAspectRatio", `${right ? "xMax" : "xMin"}${bottom ? "YMax" : "YMin"} meet`);
-    indicator.querySelector("g").setAttribute("transform", `translate(${right ? 100 : 0} ${bottom ? 100 : 0})`);
     indicator.style.setProperty("--co2-size", visible ? co2.radiusFraction * this._co2Settings.co2_indicator_scale : 0);
     indicator.style.setProperty("--co2-visible", visible ? 1 : 0);
     // Keep the last warning color while shrinking away for normal/unavailable readings.
     if (visible) indicator.style.setProperty("--co2-color", this._co2Settings[`co2_${co2.band}_color`]);
-    this.shadowRoot.querySelector(".calendar-panel").setAttribute("aria-label", `Calendar; ${co2.label}`);
+    this.shadowRoot.querySelector(".display").setAttribute("aria-label", `Clock and calendar; ${co2.label}`);
     this._renderValues();
     const usable = this._status === "ready" && this._calendarAvailable();
     const model = this._displayEvents();
@@ -508,6 +538,7 @@ export class EchoShowCard extends ElementBase {
       const message = !this._config.calendar ? "Choose a calendar" : usable ? "No upcoming events" : this._status === "loading" && this._calendarAvailable() ? "Loading calendar…" : "Calendar unavailable";
       text(".empty .calendar-text", items.length ? "" : message);
     }
+    this._positionIndicator();
   }
 }
 
@@ -557,9 +588,10 @@ class EchoShowCardEditor extends ElementBase {
           <button type="button" data-default-values>Use CO₂ default</button></div>
       </fieldset>
       <fieldset><legend>CO₂ warnings</legend>
-        <label>Indicator corner<select data-setting="co2_indicator_corner" aria-describedby="co2-error">
-          ${CO2_CORNERS.map((corner) => `<option value="${corner}">${corner.replace("-", " ")}</option>`).join("")}
-        </select></label>
+        <label>Circle center X (%)<input type="number" min="0" max="100" step="any" required data-setting="co2_indicator_x" aria-describedby="position-help co2-error"></label>
+        <label>Circle center Y (%)<input type="number" min="0" max="100" step="any" required data-setting="co2_indicator_y" aria-describedby="position-help co2-error"></label>
+        <p class="hint" id="position-help">Across the whole card: 0 / 0 is top-left, 50 / 50 is the center, and 100 / 100 is bottom-right.
+          Only the card edges clip the circle. Moving inward reveals more of it.</p>
         <label>Warning threshold (ppm)<input type="number" min="0" step="any" required data-setting="co2_warning_threshold" aria-describedby="threshold-help co2-error"></label>
         <label>Critical threshold (ppm)<input type="number" min="0" step="any" required data-setting="co2_critical_threshold" aria-describedby="threshold-help co2-error"></label>
         <p class="hint" id="threshold-help">Warning starts at its threshold; critical starts above its threshold.
@@ -620,9 +652,10 @@ class EchoShowCardEditor extends ElementBase {
     this.shadowRoot.querySelector("[data-calendar]").value = this._draft.calendar || "";
     const input = this.shadowRoot.querySelector("[data-entity]");
     if (this.shadowRoot.activeElement !== input) input.value = this._draft.co2_entity;
+    const defaults = co2Defaults(this._draft);
     for (const control of this.shadowRoot.querySelectorAll("[data-setting],[data-color-picker]")) {
       const key = control.dataset.setting || control.dataset.colorPicker;
-      const value = this._draft[key] === undefined ? DEFAULT_CO2_SETTINGS[key] : this._draft[key];
+      const value = this._draft[key] === undefined ? defaults[key] : this._draft[key];
       if (this.shadowRoot.activeElement === control) continue;
       if (control.type === "color" && (typeof value !== "string" || !/^#[0-9a-f]{6}$/i.test(value.trim()))) continue;
       control.value = typeof value === "string" ? value.trim() : value;
@@ -714,5 +747,5 @@ if (globalThis.customElements && !customElements.get("echo-show-card")) {
   customElements.define("echo-show-card", EchoShowCard);
   customElements.define("echo-show-card-editor", EchoShowCardEditor);
   window.customCards = window.customCards || [];
-  window.customCards.push({ type: "echo-show-card", name: "Echo Show clock and agenda", description: "Clock, calendar focus and CO₂ corner indicator", preview: false, documentationURL: "https://github.com/makkus/echo-show-card#installation" });
+  window.customCards.push({ type: "echo-show-card", name: "Echo Show clock and agenda", description: "Clock, calendar focus and CO₂ indicator", preview: false, documentationURL: "https://github.com/makkus/echo-show-card#installation" });
 }

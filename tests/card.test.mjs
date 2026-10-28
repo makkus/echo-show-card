@@ -97,6 +97,34 @@ test("indicator corners default to top-right and reject unsupported anchors", ()
   for (const corner of ["", "left", "TOP-RIGHT", null, 1]) assert.throws(() => co2Settings({ co2_indicator_corner: corner }), /corner/);
 });
 
+test("indicator coordinates default to the whole-card top-right and override legacy corner axes", () => {
+  const coordinates = (config) => {
+    const settings = co2Settings(config);
+    return [settings.co2_indicator_x, settings.co2_indicator_y];
+  };
+  assert.deepEqual(coordinates({}), [100, 0]);
+  for (const [corner, point] of [["top-right", [100, 0]], ["top-left", [0, 0]], ["bottom-left", [0, 100]], ["bottom-right", [100, 100]]]) {
+    assert.deepEqual(coordinates({ co2_indicator_corner: corner }), point);
+  }
+  assert.deepEqual(coordinates({ co2_indicator_x: 0, co2_indicator_y: 0 }), [0, 0]);
+  assert.deepEqual(coordinates({ co2_indicator_corner: "bottom-right", co2_indicator_x: 12.5, co2_indicator_y: 73.25 }), [12.5, 73.25]);
+  assert.deepEqual(coordinates({ co2_indicator_corner: "bottom-left", co2_indicator_x: 50 }), [50, 100]);
+});
+
+test("coordinate validation accepts fractional percentages and preserves the last valid card configuration", () => {
+  for (const key of ["co2_indicator_x", "co2_indicator_y"]) {
+    for (const value of [0, 12.5, 50, 73.25, 100]) assert.equal(co2Settings({ [key]: value })[key], value);
+    for (const value of [-0.01, 100.01, NaN, Infinity, "50", "", null, true]) {
+      assert.throws(() => co2Settings({ [key]: value }), /0 to 100 percent/);
+    }
+  }
+  const card = new EchoShowCard();
+  card.setConfig({ co2_indicator_x: 50, co2_indicator_y: 50 });
+  assert.throws(() => card.setConfig({ co2_indicator_x: 101 }), /0 to 100 percent/);
+  assert.equal(card._co2Settings.co2_indicator_x, 50);
+  assert.equal(card._co2Settings.co2_indicator_y, 50);
+});
+
 test("values default to CO₂, while explicit lists control order, labels, and hiding", () => {
   assert.deepEqual(valueSettings(), []);
   assert.deepEqual(valueSettings({ co2_entity: "sensor.co2" }), [{ entity: "sensor.co2" }]);
