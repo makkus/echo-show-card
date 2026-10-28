@@ -6,7 +6,11 @@ source and installable artifact; there is no bundler or separate generated copy 
 Before the first public push, set the GitHub repository description to something like
 “Home Assistant kiosk clock, calendar agenda and CO2 background”, enable Issues, and add
 topics such as `home-assistant`, `hacs`, `lovelace-card` and `dashboard`. Keep the repository
-public so HACS can access it. The README, screenshots, MIT license and `hacs.json` are included.
+public so HACS can access it. The README, MIT license and `hacs.json` are included.
+
+The HACS job skips the README image check because this custom repository intentionally has no
+screenshots. For inclusion in the default HACS catalog, add README images and remove
+`ignore: images` so every required check passes without exceptions.
 
 To prepare a version:
 

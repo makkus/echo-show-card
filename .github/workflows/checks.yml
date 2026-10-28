@@ -34,4 +34,6 @@ jobs:
       - uses: hacs/action@main
         with:
           category: plugin
+          # This custom repository intentionally has no README screenshots.
+          ignore: images
           comment: 'false'
