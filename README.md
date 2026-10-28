@@ -5,9 +5,6 @@ and an event countdown that becomes an ongoing-event display. The background ref
 sensor reading. Originally designed for an Echo Show 8 running an Android kiosk browser;
 it can be used in other Home Assistant browsers too.
 
-![Clock and agenda with a neutral background](docs/images/agenda.png)
-![Event countdown with a yellow CO2 background](docs/images/countdown.png)
-![Ongoing event with a red CO2 background](docs/images/ongoing.png)
 
 ## Installation
 
