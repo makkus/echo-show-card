@@ -113,6 +113,11 @@ Omitted settings use their defaults, so existing dashboard configurations contin
 - An ongoing event takes priority until its end. The earliest ongoing event wins; events
   with the same start share the title area. Each disappears at its own end. All-day events
   never take focus. Titles wrap to at most three lines, with an ellipsis for overflow.
+- **Done** dismisses the displayed ongoing event (or all events sharing its title area)
+  locally, returning to the agenda unless another ongoing event or approaching countdown
+  takes focus. Dismissals survive calendar refreshes and temporary disconnections, expire at
+  each event's scheduled end, and reset on a page reload or calendar change. Calendar events
+  are not modified. An event whose title or scheduled times change can take focus again.
 - The clock is 24-hour `HH:MM`, with weekday and date underneath. Labels are English and
   times use Home Assistant's timezone, including all-day event dates and DST transitions.
 - By default, the calendar background is dark neutral below 600 ppm, muted yellow from
@@ -130,7 +135,8 @@ Calendar range reads run every minute with a 15-second timeout. The clock and fo
 update locally every second. Calendar data older than 90 seconds is discarded, including on
 wake after suspension. The external calendar provider's own synchronization interval also
 applies. Event descriptions and locations are not displayed or logged; the card persists no
-event data or credentials. No touch controls or audio are added to the kiosk display.
+event data or credentials across page reloads. Done is the kiosk display's only touch control;
+no audio is added.
 
 ## Preview and development
 
@@ -156,8 +162,9 @@ npx playwright install chromium
 npm run test:browser
 ```
 
-Browser checks cover refresh/timeout/reconnect behavior, offline/empty states, safe title
-rendering, custom CO₂ settings and text contrast, editor validation/reset, and calendar-panel
+Browser checks cover Done dismissals, keyboard activation and reset on reload,
+refresh/timeout/reconnect behavior, offline/empty states, safe title rendering,
+custom CO₂ settings and text contrast, editor validation/reset, and calendar-panel
 geometry and layout at 1280×800, 960×600 and 800×480. Screenshots are saved
 under `/tmp/echo-show-dashboard`. Set `ECHO_SCREENSHOT_DIR` to change that directory, or
 `ECHO_CHROMIUM_PATH` to use an existing Chromium executable. An external Playwright module

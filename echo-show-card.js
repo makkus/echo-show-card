@@ -69,8 +69,12 @@ export function normalizeEvents(rawEvents, timeZone) {
   }).sort((a, b) => a.start - b.start || a.title.localeCompare(b.title, "en"));
 }
 
-export function displayEvents(events, now) {
-  const timed = events.filter((event) => !event.allDay);
+// Range reads return fresh objects; match the event occurrence by its displayed data.
+function eventKey(event) { return JSON.stringify([event.start, event.end, event.title]); }
+
+export function displayEvents(events, now, dismissedEvents = []) {
+  const dismissed = new Set(dismissedEvents.map(eventKey));
+  const timed = events.filter((event) => !event.allDay && !dismissed.has(eventKey(event)));
   const ongoing = timed.filter((event) => event.start <= now && event.end > now);
   const approaching = timed.filter((event) => event.start > now && event.start - now < 60 * MINUTE);
   const candidates = ongoing.length ? ongoing : approaching;
@@ -175,6 +179,10 @@ const STYLES = `
     overflow-wrap:anywhere; }
   .focus-title { font-size:clamp(24px,3.6vw,54px); line-height:1.15; font-weight:450; margin:0; }
   .focus-status { font-size:clamp(18px,2.5vw,36px); color:var(--muted); margin:24px 0 0; line-height:1.3; }
+  .done { margin-top:24px; min-width:88px; min-height:48px; padding:10px 22px; border:1px solid currentColor;
+    border-radius:8px; background:transparent; color:inherit; font:inherit; font-size:clamp(16px,1.7vw,24px); cursor:pointer; }
+  .done:focus-visible { outline:3px solid currentColor; outline-offset:4px; }
+  .done:active { opacity:.7; }
   .empty { color:var(--muted); font-size:clamp(14px,1.7vw,24px); line-height:1.5; }
   footer { flex:none; margin-top:24px; display:flex; align-items:center; gap:10px;
     color:var(--muted); font-size:clamp(12px,1.3vw,19px); font-variant-numeric:tabular-nums; }
@@ -190,6 +198,7 @@ export class EchoShowCard extends ElementBase {
   constructor() {
     super();
     this._events = [];
+    this._dismissedEvents = [];
     this._status = "loading";
     this._nextRefresh = 0;
     this._lastSuccess = 0;
@@ -210,7 +219,10 @@ export class EchoShowCard extends ElementBase {
     const calendarChanged = !this._config || this._config.calendar !== config.calendar;
     this._config = { ...config, co2_entity: config.co2_entity || DEFAULT_CO2_ENTITY };
     this._co2Settings = settings;
-    if (calendarChanged) this._invalidate("loading");
+    if (calendarChanged) {
+      this._dismissedEvents = [];
+      this._invalidate("loading");
+    }
     this._render();
     this._refresh();
   }
@@ -304,6 +316,20 @@ export class EchoShowCard extends ElementBase {
     }
   }
 
+  _displayEvents() {
+    const now = this._now();
+    this._dismissedEvents = this._dismissedEvents.filter((event) => event.end > now);
+    const usable = this._status === "ready" && this._calendarAvailable();
+    return displayEvents(usable ? this._events : [], now, this._dismissedEvents);
+  }
+
+  _dismissOngoing() {
+    const { focus } = this._displayEvents();
+    if (focus?.status !== "ongoing") return;
+    this._dismissedEvents.push(...focus.events);
+    this._render();
+  }
+
   _render() {
     if (!this._config || !this.isConnected) return;
     if (!this.shadowRoot) {
@@ -314,12 +340,13 @@ export class EchoShowCard extends ElementBase {
             <section class="calendar-panel" aria-label="Calendar and CO₂">
               <div class="calendar-content">
                 <section class="agenda" aria-label="Upcoming events"><h2>Coming up</h2><ul></ul><div class="empty"></div></section>
-                <section class="focus" aria-label="Focus event" hidden><h1 class="focus-title clamp"></h1><p class="focus-status"></p></section>
+                <section class="focus" aria-label="Focus event" hidden><h1 class="focus-title clamp"></h1><p class="focus-status"></p><button class="done" type="button" hidden>Done</button></section>
               </div>
               <footer><span class="dot" aria-hidden="true"></span><span class="co2"></span></footer>
             </section>
           </main>
         </section>`;
+      this.shadowRoot.querySelector(".done").addEventListener("click", () => this._dismissOngoing());
     }
     const now = this._now();
     const timeZone = this._timeZone();
@@ -342,10 +369,11 @@ export class EchoShowCard extends ElementBase {
     }
     text(".co2", co2.label);
     const usable = this._status === "ready" && this._calendarAvailable();
-    const model = displayEvents(usable ? this._events : [], now);
+    const model = this._displayEvents();
     this.toggleAttribute("data-focus", Boolean(model.focus));
     this.shadowRoot.querySelector(".agenda").hidden = Boolean(model.focus);
     this.shadowRoot.querySelector(".focus").hidden = !model.focus;
+    this.shadowRoot.querySelector(".done").hidden = model.focus?.status !== "ongoing";
     if (model.focus) {
       text(".focus-title", model.focus.events.map((event) => event.title).join(" / "));
       text(".focus-status", model.focus.status);

@@ -94,6 +94,74 @@ test("an approaching event takes focus after an ongoing event ends", () => {
   assert.equal(model(events, NOW + 5 * MINUTE).focus.status, "in 15 minutes");
 });
 
+test("dismissals match refreshed occurrences and leave later events and the agenda intact", () => {
+  const raw = [timed("Reading", -20, 40), timed("Reading", 120, 180), allDay("Holiday")];
+  const dismissed = normalizeEvents(raw, ZONE).filter((event) => !event.allDay && event.start < NOW);
+  const refreshed = normalizeEvents(structuredClone(raw), ZONE);
+  const result = displayEvents(refreshed, NOW, dismissed);
+  assert.equal(result.focus, null);
+  assert.deepEqual(result.agenda.map((event) => event.title), ["Holiday", "Reading"]);
+  assert.equal(displayEvents(refreshed, NOW + 120 * MINUTE, dismissed).focus.status, "ongoing");
+});
+
+test("dismissing a shared focus reveals another ongoing event, then the next countdown", () => {
+  const events = normalizeEvents([timed("A", -20, 40), timed("B", -20, 50), timed("C", -10, 60), timed("Next", 15, 75)], ZONE);
+  const first = displayEvents(events, NOW).focus.events;
+  assert.deepEqual(first.map((event) => event.title), ["A", "B"]);
+  const second = displayEvents(events, NOW, first).focus;
+  assert.equal(second.events[0].title, "C");
+  const next = displayEvents(events, NOW, [...first, ...second.events]).focus;
+  assert.equal(next.events[0].title, "Next");
+  assert.equal(next.status, "in 15 minutes");
+});
+
+test("card dismissals survive invalidation, expire individually, and reset on calendar change", () => {
+  const card = new EchoShowCard();
+  card.setConfig({ calendar: "calendar.personal" });
+  card._hass = { connected: true, states: { "calendar.personal": { state: "on" } } };
+  card._now = () => NOW;
+  const events = normalizeEvents([timed("A", -20, 40), timed("B", -20, 50)], ZONE);
+  card._events = events;
+  card._status = "ready";
+  card._dismissOngoing();
+  assert.equal(card._displayEvents().focus, null);
+  card._invalidate("unavailable");
+  card._events = structuredClone(events);
+  card._status = "ready";
+  card.setConfig({ calendar: "calendar.personal", co2_warning_threshold: 700 });
+  assert.equal(card._displayEvents().focus, null);
+  card._now = () => NOW + 40 * MINUTE;
+  card._displayEvents();
+  assert.deepEqual(card._dismissedEvents.map((event) => event.title), ["B"]);
+  card._now = () => NOW + 50 * MINUTE;
+  card._displayEvents();
+  assert.deepEqual(card._dismissedEvents, []);
+  card._now = () => NOW;
+  card._dismissOngoing();
+  assert.equal(card._dismissedEvents.length, 2);
+  card.setConfig({ calendar: "calendar.other" });
+  assert.deepEqual(card._dismissedEvents, []);
+});
+
+test("Done ignores a countdown or unavailable data and treats an edited event as a new occurrence", () => {
+  const card = new EchoShowCard();
+  card.setConfig({ calendar: "calendar.personal" });
+  card._hass = { connected: true, states: { "calendar.personal": { state: "on" } } };
+  card._now = () => NOW;
+  card._events = normalizeEvents([timed("Next", 15, 75)], ZONE);
+  card._status = "ready";
+  card._dismissOngoing();
+  assert.deepEqual(card._dismissedEvents, []);
+  card._events = normalizeEvents([timed("Ongoing", -20, 40)], ZONE);
+  card._hass.connected = false;
+  card._dismissOngoing();
+  assert.deepEqual(card._dismissedEvents, []);
+  card._hass.connected = true;
+  card._dismissOngoing();
+  card._events = normalizeEvents([timed("Edited ongoing", -20, 40)], ZONE);
+  assert.equal(card._displayEvents().focus.events[0].title, "Edited ongoing");
+});
+
 test("all-day events spanning today appear in the agenda and never enter focus", () => {
   const result = model([allDay("Holiday", "2026-10-26", "2026-10-30"), allDay("Expired", "2026-10-27", "2026-10-28")]);
   assert.equal(result.focus, null);

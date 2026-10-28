@@ -33,12 +33,41 @@ try {
   }
   await scenario("countdown");
   assert.equal(await text(".focus-status"), "in 37 minutes");
+  assert.equal(await card.getByRole("button", { name: "Done", exact: true }).isVisible(), false);
   await scenario("ongoing");
   assert.equal(await text(".focus-status"), "ongoing");
+  await card.getByRole("button", { name: "Done", exact: true }).click();
+  assert.equal(await card.locator(".agenda").isVisible(), true);
+  assert.equal(await card.getAttribute("data-focus"), null);
+  assert.equal(await card.locator("li").count(), 5);
+  await page.evaluate(() => window.echoPreview.render());
+  assert.equal(await card.locator(".focus").isVisible(), false, "refresh must preserve dismissal");
+  await scenario("offline");
+  await scenario("ongoing");
+  assert.equal(await card.locator(".focus").isVisible(), false, "reconnect must preserve dismissal");
+  await page.reload();
+  await page.waitForFunction(() => window.echoPreview?.card._status === "ready");
+  await scenario("ongoing");
+  assert.equal(await card.getByRole("button", { name: "Done", exact: true }).isVisible(), true, "reload resets dismissals");
   await scenario("overlap");
   assert.equal(await text(".focus-title"), "Quiet afternoon");
+  await card.getByRole("button", { name: "Done", exact: true }).click();
+  assert.equal(await text(".focus-title"), "Team catch-up");
+  assert.equal(await text(".focus-status"), "in 10 minutes");
+  assert.equal(await card.getByRole("button", { name: "Done", exact: true }).isVisible(), false);
   await scenario("simultaneous");
   assert.match(await text(".focus-title"), /Call with Sam \/ Lunch with Alex/);
+  await page.evaluate(async () => {
+    document.querySelector("#offset").value = "25";
+    await window.echoPreview.render();
+  });
+  await card.getByRole("button", { name: "Done", exact: true }).focus();
+  await page.keyboard.press("Enter");
+  assert.equal(await card.locator(".agenda").isVisible(), true, "Done dismisses the entire displayed group using the keyboard");
+  await page.evaluate(async () => {
+    document.querySelector("#offset").value = "0";
+    await window.echoPreview.render();
+  });
   await scenario("empty");
   assert.equal(await text(".empty"), "No upcoming events");
   await scenario("error");
@@ -238,9 +267,10 @@ try {
   await page.addStyleTag({ content: "header { display:none !important; }" });
   for (const [width, height] of [[1280, 800], [960, 600], [800, 480]]) {
     await page.setViewportSize({ width, height });
-    for (const name of ["agenda", "countdown", "ongoing", "long", "empty", "error", "offline"]) {
+    for (const name of ["agenda", "countdown", "ongoing", "long", "long-ongoing", "empty", "error", "offline"]) {
       await page.evaluate(async (scenarioName) => {
-        document.querySelector("#scenario").value = scenarioName;
+        document.querySelector("#scenario").value = scenarioName === "long-ongoing" ? "long" : scenarioName;
+        document.querySelector("#offset").value = scenarioName === "long-ongoing" ? "30" : "0";
         document.querySelector("#co2").value = scenarioName === "ongoing" ? "1200" : "800";
         await window.echoPreview.render();
         window.echoPreview.card._fitHeight();
@@ -249,7 +279,7 @@ try {
         const card = window.echoPreview.card;
         const root = card.shadowRoot;
         const display = root.querySelector(".display").getBoundingClientRect();
-        const visible = [...root.querySelectorAll(".time,.date,li,.focus-title,.focus-status,footer")].filter((el) => el.getBoundingClientRect().height > 0);
+        const visible = [...root.querySelectorAll(".time,.date,li,.focus-title,.focus-status,.done,footer")].filter((el) => el.getBoundingClientRect().height > 0);
         return visible.filter((el) => {
           const box = el.getBoundingClientRect();
           const container = root.querySelector(el.closest(".calendar-panel") ? ".calendar-panel" : ".clock").getBoundingClientRect();
@@ -263,13 +293,19 @@ try {
         const display = root.querySelector(".display").getBoundingClientRect();
         const panel = root.querySelector(".calendar-panel").getBoundingClientRect();
         const footer = root.querySelector("footer").getBoundingClientRect();
+        const done = root.querySelector(".done").getBoundingClientRect();
         const panelStyle = getComputedStyle(root.querySelector(".calendar-panel"));
         return { width: panel.width / display.width, top: panel.top - display.top, right: display.right - panel.right,
           bottom: display.bottom - panel.bottom, footerGap: panel.bottom - footer.bottom,
           bottomPadding: parseFloat(panelStyle.paddingBottom), footerInside: footer.left >= panel.left && footer.right <= panel.right,
+          doneHeight: done.height, doneAboveFooter: done.bottom <= footer.top,
           background: panelStyle.backgroundColor, clock: getComputedStyle(root.querySelector(".display")).backgroundColor };
       });
-      const focused = ["countdown", "ongoing", "long"].includes(name);
+      const focused = ["countdown", "ongoing", "long", "long-ongoing"].includes(name);
+      if (["ongoing", "long-ongoing"].includes(name)) {
+        assert.ok(geometry.doneHeight >= 48, "Done must have a usable touch target");
+        assert.equal(geometry.doneAboveFooter, true, "Done must not overlap the CO₂ footer");
+      }
       assert.ok(Math.abs(geometry.width - (focused ? 1 / 2 : 1 / 3)) < 0.002, `${name} calendar panel width`);
       for (const edge of ["top", "right", "bottom"]) assert.ok(Math.abs(geometry[edge]) < 1, `${name} panel must fill ${edge} edge`);
       assert.ok(Math.abs(geometry.footerGap - geometry.bottomPadding) < 1, "CO₂ footer must stay at panel bottom");
@@ -282,7 +318,7 @@ try {
     }
   }
   assert.deepEqual(errors, []);
-  console.log(`Browser checks passed: states, refresh/timeout/reconnect, safe text, custom CO₂ settings/contrast, editor validation/reset, panel geometry at 3 viewport sizes. Screenshots: ${shots}`);
+  console.log(`Browser checks passed: states, Done dismissal/refresh/reconnect/reload/keyboard, refresh/timeout/reconnect, safe text, custom CO₂ settings/contrast, editor validation/reset, panel geometry at 3 viewport sizes. Screenshots: ${shots}`);
 } finally {
   if (browser) await browser.close();
   await new Promise((resolve) => server.close(resolve));

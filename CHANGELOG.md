@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Initial clock and seven-day agenda card with upcoming/ongoing event focus.
+- Done button to dismiss ongoing events locally until their scheduled end without editing the calendar.
 - CO2 background bands, numerical reading and unavailable-data handling.
 - Calendar-only CO₂ backgrounds with the reading at the panel's bottom; configurable
   warning thresholds and colors, automatic text contrast, and reset in the visual editor.
