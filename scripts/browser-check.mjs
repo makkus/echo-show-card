@@ -5,8 +5,10 @@ import { startPreview } from "./serve-preview.mjs";
 // Playwright is a development dependency; Home Assistant only needs the card file.
 const { chromium } = await import(process.env.ECHO_PLAYWRIGHT_MODULE || "playwright");
 const { server, url } = await startPreview();
+const shots = process.env.ECHO_SCREENSHOT_DIR || "/tmp/echo-show-dashboard";
 let browser;
 try {
+  await mkdir(shots, { recursive: true });
   browser = await chromium.launch({ headless: true, ...(process.env.ECHO_CHROMIUM_PATH ? { executablePath: process.env.ECHO_CHROMIUM_PATH } : {}) });
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
   const errors = [];
@@ -25,7 +27,7 @@ try {
   assert.equal(await card.locator("li").count(), 5);
   assert.equal(await card.locator(".focus").isVisible(), false);
 
-  for (const [value, band] of [["600", "yellow"], ["1000", "yellow"], ["1000.1", "red"], ["unavailable", "neutral"]]) {
+  for (const [value, band] of [["600", "warning"], ["1000", "warning"], ["1000.1", "critical"], ["unavailable", "unavailable"]]) {
     await page.selectOption("#co2", value);
     await page.waitForFunction((expected) => window.echoPreview.card.dataset.co2 === expected, band);
   }
@@ -42,11 +44,43 @@ try {
   await scenario("error");
   assert.equal(await text(".empty"), "Calendar unavailable");
   await page.selectOption("#co2", "1200");
-  assert.equal(await card.getAttribute("data-co2"), "red");
+  assert.equal(await card.getAttribute("data-co2"), "critical");
   await scenario("offline");
   assert.equal(await text(".empty"), "Calendar unavailable");
   assert.equal(await text(".co2"), "CO₂ unavailable");
-  assert.equal(await card.getAttribute("data-co2"), "neutral");
+  assert.equal(await card.getAttribute("data-co2"), "unavailable");
+
+  // Custom settings change the calendar background and contrast, keeping the clock dark.
+  await scenario("agenda");
+  await page.evaluate(() => {
+    const card = window.echoPreview.card;
+    card.setConfig({ ...card._config, co2_warning_threshold: 700.5, co2_critical_threshold: 1200.5,
+      co2_normal_color: "#ffffff", co2_warning_color: "#000000", co2_critical_color: "#ffff00" });
+  });
+  const appearance = async () => page.evaluate(() => {
+    const root = window.echoPreview.card.shadowRoot;
+    const panel = getComputedStyle(root.querySelector(".calendar-panel"));
+    return { background: panel.backgroundColor, ink: panel.color,
+      clock: getComputedStyle(root.querySelector(".display")).backgroundColor,
+      time: getComputedStyle(root.querySelector(".time")).color,
+      date: getComputedStyle(root.querySelector(".date")).color };
+  });
+  for (const [value, band, background, ink] of [
+    ["700.49", "normal", "rgb(255, 255, 255)", "rgb(0, 0, 0)"],
+    ["700.5", "warning", "rgb(0, 0, 0)", "rgb(255, 255, 255)"],
+    ["1200.5", "warning", "rgb(0, 0, 0)", "rgb(255, 255, 255)"],
+    ["1200.51", "critical", "rgb(255, 255, 0)", "rgb(0, 0, 0)"],
+    ["unavailable", "unavailable", "rgb(21, 28, 36)", "rgb(255, 255, 255)"],
+  ]) {
+    await page.evaluate((reading) => {
+      const card = window.echoPreview.card;
+      card._hass.states[card._config.co2_entity].state = reading;
+      card.hass = { ...card._hass };
+    }, value);
+    assert.equal(await card.getAttribute("data-co2"), band);
+    assert.deepEqual(await appearance(), { background, ink, clock: "rgb(21, 28, 36)", time: "rgb(240, 243, 246)", date: "rgb(172, 182, 194)" });
+    assert.equal(await card.locator("li").count(), 5);
+  }
 
   // Titles are calendar data, never markup.
   await page.evaluate(async () => {
@@ -87,6 +121,12 @@ try {
     pending.shift().resolve([{ summary: "Real element test", start: { dateTime: new Date(Date.now() + 120_000).toISOString() }, end: { dateTime: new Date(Date.now() + 3_600_000).toISOString() } }]);
   });
   await page.waitForFunction(() => window.cardCheck.card._status === "ready");
+  await page.evaluate(() => {
+    const card = window.cardCheck.card;
+    card.setConfig({ ...card._config, co2_warning_threshold: 650, co2_warning_color: "#ffffff" });
+  });
+  assert.equal(await page.evaluate(() => window.cardCheck.calls.length), 1, "presentation edits must not refetch the calendar");
+  assert.equal(await page.locator("echo-show-card .focus-title").textContent(), "Real element test");
   await page.clock.fastForward(60_000);
   assert.equal(await page.evaluate(() => window.cardCheck.calls.length), 2);
   assert.equal(await page.locator("echo-show-card .focus-status").textContent(), "in 1 minute");
@@ -98,6 +138,7 @@ try {
   // A fresh read after a reconnect must not accept a response from before it.
   await page.evaluate(() => {
     const check = window.cardCheck;
+    check.card._tick(true);
     check.card.hass = { ...check.hass, connected: false };
     check.card.hass = check.hass;
     check.card.setConfig({ calendar: "calendar.personal", co2_entity: "sensor.co2" });
@@ -121,40 +162,127 @@ try {
   await page.evaluate(async () => {
     const { EchoShowCard } = await import("/echo-show-card.js");
     const editor = EchoShowCard.getConfigElement();
-    editor.setConfig({ type: "custom:echo-show-card", calendar: "", co2_entity: "sensor.co2" });
+    editor.setConfig({ type: "custom:echo-show-card", calendar: "", co2_entity: "sensor.co2", extra_option: "preserve" });
     editor.hass = { states: { "calendar.personal": { state: "off", attributes: { friendly_name: "My calendar" } } } };
-    editor.addEventListener("config-changed", (event) => { window.editorConfig = event.detail.config; });
+    window.editorChanges = [];
+    editor.addEventListener("config-changed", (event) => {
+      window.editorConfig = event.detail.config;
+      window.editorChanges.push(event.detail.config);
+      // Simulate Home Assistant passing the emitted configuration back to the editor.
+      editor.setConfig(event.detail.config);
+    });
     document.body.append(editor);
   });
   await page.locator("echo-show-card-editor select").selectOption("calendar.personal");
-  assert.deepEqual(await page.evaluate(() => window.editorConfig), { type: "custom:echo-show-card", calendar: "calendar.personal", co2_entity: "sensor.co2" });
+  const originalConfig = { type: "custom:echo-show-card", calendar: "calendar.personal", co2_entity: "sensor.co2", extra_option: "preserve" };
+  assert.deepEqual(await page.evaluate(() => window.editorConfig), originalConfig);
+  const editor = page.locator("echo-show-card-editor");
+  const warning = editor.locator('[data-setting="co2_warning_threshold"]');
+  const critical = editor.locator('[data-setting="co2_critical_threshold"]');
+  const normalHex = editor.locator('[data-setting="co2_normal_color"]');
+  assert.equal(await warning.inputValue(), "600");
+  assert.equal(await critical.inputValue(), "1000");
+  await warning.fill("700.5");
+  assert.equal((await page.evaluate(() => window.editorConfig)).co2_warning_threshold, 700.5);
+  const changesBeforeInvalid = await page.evaluate(() => window.editorChanges.length);
+  await critical.fill("700.5");
+  assert.equal(await editor.locator('[role="alert"]').isVisible(), true);
+  assert.match(await editor.locator('[role="alert"]').textContent(), /below/);
+  await page.evaluate(() => { const editor = document.querySelector("echo-show-card-editor"); editor.hass = { ...editor._hass }; });
+  assert.equal(await critical.inputValue(), "700.5", "HA updates must preserve invalid drafts");
+  await critical.fill("-1");
+  await critical.fill("");
+  assert.equal(await page.evaluate(() => window.editorChanges.length), changesBeforeInvalid);
+  await critical.fill("1200.5");
+  assert.equal(await editor.locator('[role="alert"]').isVisible(), false);
+  await page.setViewportSize({ width: 400, height: 1200 });
+  const editorOverflow = await editor.evaluate((element) => {
+    const boundary = element.getBoundingClientRect();
+    return [...element.shadowRoot.querySelectorAll("input,select,button,fieldset")].some((control) => {
+      const box = control.getBoundingClientRect();
+      return box.left < boundary.left || box.right > boundary.right;
+    });
+  });
+  assert.equal(editorOverflow, false, "editor controls must fit a narrow dashboard dialog");
+  await editor.screenshot({ path: `${shots}/editor.png` });
+  await normalHex.fill("#ffffff");
+  assert.equal(await editor.locator('[data-color-picker="co2_normal_color"]').inputValue(), "#ffffff");
+  const changesBeforeBadColor = await page.evaluate(() => window.editorChanges.length);
+  await normalHex.fill("red");
+  assert.match(await editor.locator('[role="alert"]').textContent(), /#RRGGBB/);
+  assert.equal(await page.evaluate(() => window.editorChanges.length), changesBeforeBadColor);
+  await normalHex.fill("#abcdef");
+  await editor.locator('[data-color-picker="co2_warning_color"]').fill("#123456");
+  assert.equal(await editor.locator('[data-setting="co2_warning_color"]').inputValue(), "#123456");
+  await editor.locator('[data-setting="co2_critical_color"]').fill("#000000");
+  const customConfig = await page.evaluate(() => window.editorConfig);
+  assert.deepEqual(customConfig, { ...originalConfig, co2_warning_threshold: 700.5, co2_critical_threshold: 1200.5,
+    co2_normal_color: "#abcdef", co2_warning_color: "#123456", co2_critical_color: "#000000" });
+  await page.evaluate((config) => document.querySelector("echo-show-card-editor").setConfig(JSON.parse(JSON.stringify(config))), customConfig);
+  assert.equal(await normalHex.inputValue(), "#abcdef");
+  assert.equal(await critical.inputValue(), "1200.5");
+  await normalHex.fill("invalid");
+  await editor.locator("[data-reset]").click();
+  assert.deepEqual(await page.evaluate(() => window.editorConfig), originalConfig);
+  assert.equal(await warning.inputValue(), "600");
+  assert.equal(await critical.inputValue(), "1000");
+  for (const [level, color] of [["normal", "#151c24"], ["warning", "#e5c76b"], ["critical", "#af4d47"]]) {
+    assert.equal(await editor.locator(`[data-setting="co2_${level}_color"]`).inputValue(), color);
+    assert.equal(await editor.locator(`[data-color-picker="co2_${level}_color"]`).inputValue(), color);
+  }
+  assert.equal(await editor.locator('[role="alert"]').isVisible(), false);
 
   // Viewport/overflow checks and screenshots contain only the synthetic preview.
   await page.goto(url);
   await page.waitForFunction(() => window.echoPreview?.card._status === "ready");
   await page.addStyleTag({ content: "header { display:none !important; }" });
-  const shots = process.env.ECHO_SCREENSHOT_DIR || "/tmp/echo-show-dashboard";
-  await mkdir(shots, { recursive: true });
   for (const [width, height] of [[1280, 800], [960, 600], [800, 480]]) {
     await page.setViewportSize({ width, height });
-    for (const name of ["agenda", "countdown", "ongoing", "long"]) {
-      await page.evaluate(async (scenarioName) => { document.querySelector("#scenario").value = scenarioName; await window.echoPreview.render(); window.echoPreview.card._fitHeight(); }, name);
+    for (const name of ["agenda", "countdown", "ongoing", "long", "empty", "error", "offline"]) {
+      await page.evaluate(async (scenarioName) => {
+        document.querySelector("#scenario").value = scenarioName;
+        document.querySelector("#co2").value = scenarioName === "ongoing" ? "1200" : "800";
+        await window.echoPreview.render();
+        window.echoPreview.card._fitHeight();
+      }, name);
       const overflow = await page.evaluate(() => {
         const card = window.echoPreview.card;
         const root = card.shadowRoot;
         const display = root.querySelector(".display").getBoundingClientRect();
         const visible = [...root.querySelectorAll(".time,.date,li,.focus-title,.focus-status,footer")].filter((el) => el.getBoundingClientRect().height > 0);
-        return visible.filter((el) => { const box = el.getBoundingClientRect(); return box.right > display.right + 1 || box.bottom > display.bottom + 1 || box.left < display.left - 1 || (el.classList.contains("time") && el.scrollWidth > el.clientWidth + 1); }).map((el) => el.className);
+        return visible.filter((el) => {
+          const box = el.getBoundingClientRect();
+          const container = root.querySelector(el.closest(".calendar-panel") ? ".calendar-panel" : ".clock").getBoundingClientRect();
+          return box.right > container.right + 1 || box.bottom > display.bottom + 1 || box.left < container.left - 1 || box.top < display.top - 1 ||
+            (el.classList.contains("time") && el.scrollWidth > el.clientWidth + 1);
+        }).map((el) => el.className);
       });
       assert.deepEqual(overflow, [], `${width}×${height} ${name} overflows: ${overflow}`);
+      const geometry = await page.evaluate(() => {
+        const root = window.echoPreview.card.shadowRoot;
+        const display = root.querySelector(".display").getBoundingClientRect();
+        const panel = root.querySelector(".calendar-panel").getBoundingClientRect();
+        const footer = root.querySelector("footer").getBoundingClientRect();
+        const panelStyle = getComputedStyle(root.querySelector(".calendar-panel"));
+        return { width: panel.width / display.width, top: panel.top - display.top, right: display.right - panel.right,
+          bottom: display.bottom - panel.bottom, footerGap: panel.bottom - footer.bottom,
+          bottomPadding: parseFloat(panelStyle.paddingBottom), footerInside: footer.left >= panel.left && footer.right <= panel.right,
+          background: panelStyle.backgroundColor, clock: getComputedStyle(root.querySelector(".display")).backgroundColor };
+      });
+      const focused = ["countdown", "ongoing", "long"].includes(name);
+      assert.ok(Math.abs(geometry.width - (focused ? 1 / 2 : 1 / 3)) < 0.002, `${name} calendar panel width`);
+      for (const edge of ["top", "right", "bottom"]) assert.ok(Math.abs(geometry[edge]) < 1, `${name} panel must fill ${edge} edge`);
+      assert.ok(Math.abs(geometry.footerGap - geometry.bottomPadding) < 1, "CO₂ footer must stay at panel bottom");
+      assert.equal(geometry.footerInside, true);
+      assert.equal(geometry.clock, "rgb(21, 28, 36)");
+      assert.equal(geometry.background, name === "offline" ? "rgb(21, 28, 36)" : name === "ongoing" ? "rgb(175, 77, 71)" : "rgb(229, 199, 107)");
       if (width === 1280) {
-        await page.evaluate(async (value) => { document.querySelector("#co2").value = value; await window.echoPreview.render(); }, name === "countdown" ? "800" : name === "ongoing" ? "1200" : "500");
         await page.screenshot({ path: `${shots}/${name}.png` });
       }
     }
   }
   assert.deepEqual(errors, []);
-  console.log(`Browser checks passed: states, refresh/timeout/reconnect, safe text, editor, 3 viewport sizes. Screenshots: ${shots}`);
+  console.log(`Browser checks passed: states, refresh/timeout/reconnect, safe text, custom CO₂ settings/contrast, editor validation/reset, panel geometry at 3 viewport sizes. Screenshots: ${shots}`);
 } finally {
   if (browser) await browser.close();
   await new Promise((resolve) => server.close(resolve));

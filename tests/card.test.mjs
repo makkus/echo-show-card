@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { calendarMidnight, co2Reading, displayEvents, normalizeEvents } from "../echo-show-card.js";
+import { DEFAULT_CO2_SETTINGS, EchoShowCard, calendarMidnight, co2Foreground, co2Reading, co2Settings, displayEvents, normalizeEvents } from "../echo-show-card.js";
 
 const ZONE = "Europe/Berlin";
 const NOW = Date.parse("2026-10-28T12:00:00+01:00");
@@ -13,16 +13,56 @@ const allDay = (title, start = "2026-10-28", end = "2026-10-29") => ({ summary: 
 const model = (events, now = NOW) => displayEvents(normalizeEvents(events, ZONE), now);
 
 test("CO₂ boundaries use the actual reading, including fractional values", () => {
-  for (const [value, band] of [["599.9", "neutral"], ["600", "yellow"], ["1000", "yellow"], ["1000.1", "red"]]) {
+  for (const [value, band] of [["599.9", "normal"], ["600", "warning"], ["1000", "warning"], ["1000.1", "critical"]]) {
     assert.deepEqual(co2Reading({ state: value, attributes: { unit_of_measurement: "ppm" } }), { band, label: `CO₂ ${value} ppm` });
   }
 });
 
 test("CO₂ missing, invalid, wrong-unit and disconnected readings are unavailable", () => {
   for (const state of [undefined, { state: "" }, { state: "  " }, { state: "unknown" }, { state: "unavailable" }, { state: "Infinity" }, { state: "-1" }, { state: "900", attributes: { unit_of_measurement: "ppb" } }]) {
-    assert.deepEqual(co2Reading(state), { band: "neutral", label: "CO₂ unavailable" });
+    assert.deepEqual(co2Reading(state), { band: "unavailable", label: "CO₂ unavailable" });
   }
-  assert.equal(co2Reading({ state: "1200" }, false).band, "neutral");
+  assert.equal(co2Reading({ state: "1200" }, false).band, "unavailable");
+});
+
+test("custom fractional CO₂ thresholds preserve inclusive warning and exclusive critical boundaries", () => {
+  const settings = co2Settings({ co2_warning_threshold: 700.5, co2_critical_threshold: 1200.5 });
+  for (const [value, band] of [["700.49", "normal"], ["700.5", "warning"], ["1200.5", "warning"], ["1200.51", "critical"]]) {
+    assert.deepEqual(co2Reading({ state: value }, true, settings), { band, label: `CO₂ ${value} ppm` });
+  }
+  assert.equal(co2Reading({ state: "0" }, true, co2Settings({ co2_warning_threshold: 0 })).band, "warning");
+});
+
+test("CO₂ settings merge defaults and reject invalid thresholds and colors", () => {
+  assert.deepEqual(co2Settings(), DEFAULT_CO2_SETTINGS);
+  assert.deepEqual(co2Settings({ co2_warning_color: " #ABCDEF " }), { ...DEFAULT_CO2_SETTINGS, co2_warning_color: "#abcdef" });
+  assert.equal(co2Settings({ co2_warning_threshold: 0, co2_critical_threshold: 0.1 }).co2_warning_threshold, 0);
+  for (const key of ["co2_warning_threshold", "co2_critical_threshold"]) {
+    for (const value of ["", "700", null, true, -1, NaN, Infinity]) {
+      assert.throws(() => co2Settings({ [key]: value }), /finite, nonnegative/);
+    }
+  }
+  for (const warning of [1000, 1001]) {
+    assert.throws(() => co2Settings({ co2_warning_threshold: warning }), /below/);
+  }
+  for (const key of ["co2_normal_color", "co2_warning_color", "co2_critical_color"]) {
+    for (const value of ["", null, 123456, "red", "#abc", "#gggggg", "#ffffffff", "url(example)"]) {
+      assert.throws(() => co2Settings({ [key]: value }), /#RRGGBB/);
+    }
+  }
+});
+
+test("invalid card settings leave the last valid configuration intact", () => {
+  const card = new EchoShowCard();
+  card.setConfig({ calendar: "calendar.personal", co2_warning_threshold: 700 });
+  assert.throws(() => card.setConfig({ calendar: "calendar.other", co2_warning_threshold: 1200 }), /below/);
+  assert.equal(card._config.calendar, "calendar.personal");
+  assert.equal(card._co2Settings.co2_warning_threshold, 700);
+});
+
+test("CO₂ foreground adapts to light, dark and middle-luminance backgrounds", () => {
+  for (const color of ["#ffffff", "#e5c76b", "#808080", "#777777"]) assert.equal(co2Foreground(color), "#000000");
+  for (const color of ["#000000", "#151c24", "#af4d47", "#757575"]) assert.equal(co2Foreground(color), "#ffffff");
 });
 
 test("countdown enters strictly below one hour, rounds up and handles the last minute", () => {

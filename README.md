@@ -1,9 +1,9 @@
 # Echo Show clock and agenda
 
 A Home Assistant card for a quiet kiosk display: a large clock, an upcoming calendar agenda,
-and an event countdown that becomes an ongoing-event display. The background reflects a CO2
-sensor reading. Originally designed for an Echo Show 8 running an Android kiosk browser;
-it can be used in other Home Assistant browsers too.
+and an event countdown that becomes an ongoing-event display. The calendar panel's background
+reflects a CO2 sensor reading while the clock stays dark. Originally designed for an Echo Show 8
+running an Android kiosk browser; it can be used in other Home Assistant browsers too.
 
 
 ## Installation
@@ -49,6 +49,7 @@ installation so the browser loads one copy of the card.
 2. Open the new dashboard, edit it, and apply [examples/dashboard.yaml](examples/dashboard.yaml)
    through the **Raw configuration editor**. This sets a panel view containing exactly one card.
 3. Open the card's visual editor. Choose your main calendar and enter or select the CO2 sensor.
+   Under **CO₂ warnings**, adjust the two ppm thresholds and three background colors if desired.
    Save, then check the live event list and numerical reading against Home Assistant.
 4. Open `/echo-show/clock` on your kiosk. Record its current start URL before changing it.
    Assign this dashboard as the new kiosk start URL once it renders correctly.
@@ -74,6 +75,33 @@ it displays “Choose a calendar”; with an empty CO2 sensor, it displays “CO
 | `type` | `custom:echo-show-card` | Required |
 | `calendar` | One calendar entity to display | Unset |
 | `co2_entity` | Sensor with a numerical ppm reading | Unset |
+| `co2_warning_threshold` | Warning starts at this reading, in ppm | `600` |
+| `co2_critical_threshold` | Critical starts strictly above this reading, in ppm | `1000` |
+| `co2_normal_color` | Calendar background below the warning threshold | `"#151c24"` |
+| `co2_warning_color` | Calendar background from warning through critical threshold, inclusive | `"#e5c76b"` |
+| `co2_critical_color` | Calendar background above the critical threshold | `"#af4d47"` |
+
+All five CO₂ warning settings are available in the card's visual editor. Colors have a picker
+and an editable six-digit hex value (`#RRGGBB`); text automatically switches between light and
+dark to keep it readable. Thresholds accept nonnegative, finite numbers, including fractions,
+and the warning threshold must be strictly below the critical threshold. Invalid entries show
+an error and do not update the applied configuration. **Reset CO₂ settings** restores both
+thresholds and all three colors while preserving entity selections.
+
+These options also work in YAML; quote hex colors so YAML does not treat them as comments:
+
+```yaml
+type: custom:echo-show-card
+calendar: calendar.personal
+co2_entity: sensor.co2
+co2_warning_threshold: 700
+co2_critical_threshold: 1200
+co2_normal_color: "#151c24"
+co2_warning_color: "#e5c76b"
+co2_critical_color: "#af4d47"
+```
+
+Omitted settings use their defaults, so existing dashboard configurations continue to work.
 
 ## Display behavior
 
@@ -87,11 +115,14 @@ it displays “Choose a calendar”; with an empty CO2 sensor, it displays “CO
   never take focus. Titles wrap to at most three lines, with an ellipsis for overflow.
 - The clock is 24-hour `HH:MM`, with weekday and date underneath. Labels are English and
   times use Home Assistant's timezone, including all-day event dates and DST transitions.
-- The background is dark neutral below 600 ppm, muted yellow from **600 through 1000**,
-  and muted red **above 1000**. The numerical reading remains visible.
+- By default, the calendar background is dark neutral below 600 ppm, muted yellow from
+  **600 through 1000**, and muted red **above 1000**. The color fills the calendar panel edge
+  to edge: the right third normally, or the right half for countdowns and ongoing events.
+  The clock and date keep their dark background, and the CO₂ reading sits at the panel's bottom.
 - An empty calendar says “No upcoming events”; a failed read says “Calendar unavailable”.
   Event details are removed after a failed read. Missing, unknown, non-numeric, negative or
-  incompatible-unit CO2 readings say “CO₂ unavailable” and use the neutral background.
+  incompatible-unit CO2 readings say “CO₂ unavailable” and use the original dark background
+  (`#151c24`), even when the normal color has been customized.
 - On a Home Assistant disconnection, event details are removed and CO2 becomes unavailable.
   The clock continues. A calendar failure alone does not invalidate a working CO2 sensor.
 
@@ -126,7 +157,8 @@ npm run test:browser
 ```
 
 Browser checks cover refresh/timeout/reconnect behavior, offline/empty states, safe title
-rendering, the visual editor and layout at 1280×800, 960×600 and 800×480. Screenshots are saved
+rendering, custom CO₂ settings and text contrast, editor validation/reset, and calendar-panel
+geometry and layout at 1280×800, 960×600 and 800×480. Screenshots are saved
 under `/tmp/echo-show-dashboard`. Set `ECHO_SCREENSHOT_DIR` to change that directory, or
 `ECHO_CHROMIUM_PATH` to use an existing Chromium executable. An external Playwright module
 can be supplied with `ECHO_PLAYWRIGHT_MODULE`.
